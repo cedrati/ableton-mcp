@@ -1,7 +1,7 @@
 # Test report — Remote Script 1.11.0 (fork `cedrati/ableton-mcp`)
 
 - **Date:** 2026-11-19
-- **Branch tested:** `feat/clip-loop` @ `191fae5`; fix below covered by unit tests, not re-run in Live
+- **Branch tested:** `feat/clip-loop` @ `191fae5`, then `feat/mixer-scenes` @ `5313403` after merging (§4)
 - **Environment:** Ableton Live 12.4.5 Suite, 120 BPM, 4 tracks + 2 returns
 - **Method:** real calls through the MCP server. A 16-beat MIDI clip, the Splice loop `TSP_SDG_131_bass_synth_status_Amin.wav` (7.328 s), and an Arrangement copy of the MIDI clip. Test tracks deleted at the end (set back to 4 tracks).
 
@@ -33,3 +33,17 @@
 
 1. **Unlooped clips play `loop_start` → `loop_end`.** With looping off, Live ignores a `start_marker` write without an error, mirrors `start_marker` from `loop_start`, and accepts an `end_marker` that changes nothing (the length stays `loop_end - loop_start`). Fix: when the clip is (or is being made) unlooped, start/end markers are written to `loop_start` / `loop_end` and the reply says so; giving markers and loop values together for such a clip is refused. `get_clip_loop` / `set_clip_loop` now return a `playback` summary: `{"starts_at", "repeats"}` when looping, `{"plays_once"}` when not.
 2. **Turning warping off then on resets the warp markers** of an audio clip (Live behavior). Documented in the `set_clip_loop` description.
+
+## 4. Re-run after merging (`5313403`)
+
+Live loaded the script at 13:48:59, after its install at 13:45:26. Set restored afterwards (4 tracks, 120 BPM).
+
+| Test | Result |
+|---|---|
+| `original_bpm=140` on the 140 BPM drum loop (6.856 s) in a 142 BPM set | ✅ end marker at beat **16** (was 15), pinned to the end of the file; reply: "The file ends 1.1 ms before beat 16" |
+| Same reply | ✅ no "shadow marker can't be deleted" note any more |
+| `looping=false, start_marker=2, end_marker=6` | ✅ plays 2–6 once (`playback.plays_once`), note explains the brace was written, no `adjusted` |
+| Unlooped, `start_marker` + `loop_end` together | ✅ refused with the explanation |
+| `looping=true`, brace 4–8, `start_marker=0` | ✅ `playback`: starts at 0, repeats 4–8 |
+
+Every fix found while testing 1.9.0–1.11.0 has now been confirmed in Live, except the arrangement-automation question (§3 of the 1.9.0 report).
