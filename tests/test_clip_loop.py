@@ -57,10 +57,13 @@ class FakeClip(object):
 
     @property
     def start_marker(self):
-        return self._start_marker
+        # Live 12.4.5: unlooped, start_marker mirrors loop_start.
+        return self._start_marker if self.looping else self._loop_start
 
     @start_marker.setter
     def start_marker(self, v):
+        if not self.looping:
+            return  # Live ignores it, without an error
         self._guard("start_marker", v, self._end_marker)
         self._start_marker = v
 
@@ -137,11 +140,30 @@ def test_moving_the_loop_backward_writes_start_first(script_module):
     assert clip.writes == ["loop_start", "loop_end"]
 
 
-def test_markers_and_looping_switch(script_module):
+def test_markers_on_a_looping_clip(script_module):
     inst, clip = make(script_module)
-    inst._set_clip_loop(0, 0, looping=False, start_marker=2, end_marker=6)
-    assert clip.looping is False
+    info = inst._set_clip_loop(0, 0, start_marker=2, end_marker=6)
     assert (clip.start_marker, clip.end_marker) == (2.0, 6.0)
+    assert info["playback"] == {"starts_at": 2.0, "repeats": [0.0, 16.0]}
+
+
+def test_markers_on_an_unlooped_clip_go_to_the_loop_brace(script_module):
+    # Live 12.4.5 ignored start_marker=2 on an unlooped clip; it plays
+    # loop_start -> loop_end.
+    inst, clip = make(script_module)
+    info = inst._set_clip_loop(0, 0, looping=False, start_marker=2, end_marker=6)
+    assert clip.looping is False
+    assert (clip.loop_start, clip.loop_end) == (2.0, 6.0)
+    assert info["playback"] == {"plays_once": [2.0, 6.0]}
+    assert "adjusted" not in info
+    assert any("loop_start/loop_end" in n for n in info["notes"])
+
+
+def test_unlooped_markers_and_loop_values_together_are_refused(script_module):
+    inst, clip = make(script_module)
+    clip.looping = False
+    with pytest.raises(ValueError, match="doesn't loop"):
+        inst._set_clip_loop(0, 0, start_marker=2, loop_end=6)
 
 
 def test_invalid_values_are_refused_before_any_write(script_module):

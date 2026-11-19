@@ -1401,9 +1401,12 @@ def set_clip_loop(
     - The loop brace (loop_start → loop_end) is the part that repeats when
       looping is on. Shorten a 4-bar loop to its first bar with
       loop_start=0, loop_length=4.
-    - The start marker is where playback begins; the end marker is where it
-      stops when looping is off. To play another part of a sample, move
-      start_marker (and the loop brace, if looping).
+    - Looping on: playback starts at start_marker, then the brace repeats.
+      Looping off: Live plays loop_start -> loop_end once (start_marker
+      follows loop_start; end_marker is unused). Markers given for a clip
+      that doesn't loop are written to loop_start/loop_end for you.
+    - get_clip_loop's "playback" field says what actually plays.
+    - Turning warping off then on again resets an audio clip's warp markers.
 
     Units are beats (seconds for an unwarped audio clip: check get_clip_loop).
     The order of the writes is handled so the start never passes the end on

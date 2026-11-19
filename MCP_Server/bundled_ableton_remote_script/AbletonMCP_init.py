@@ -1345,6 +1345,14 @@ class AbletonMCP(ControlSurface):
             # seconds of the file, every other clip in beats.
             "units": "seconds" if unwarped else "beats",
         }
+        # What actually plays (Live 12.4.5). Looping: from the start marker,
+        # then the brace repeats. Not looping: Live plays loop_start ->
+        # loop_end; start_marker mirrors loop_start and end_marker is unused.
+        if info["looping"]:
+            info["playback"] = {"starts_at": info["start_marker"],
+                                "repeats": [info["loop_start"], info["loop_end"]]}
+        else:
+            info["playback"] = {"plays_once": [info["loop_start"], info["loop_end"]]}
         return info
 
     def _get_clip_loop(self, track_index, clip_index, location="session"):
@@ -1385,6 +1393,18 @@ class AbletonMCP(ControlSurface):
         `adjusted` lists any value Live changed (it snaps or clamps some).
         """
         clip, label = self._resolve_clip(track_index, clip_index, location)
+        notes = []
+        final_looping = bool(clip.looping) if looping is None else bool(looping)
+        if not final_looping and (start_marker is not None or end_marker is not None):
+            # Unlooped, Live plays loop_start -> loop_end and ignores a
+            # start_marker write (end_marker is accepted but unused).
+            if loop_start is not None or loop_end is not None or loop_length is not None:
+                raise ValueError("This clip doesn't loop: Live plays it from loop_start to "
+                                 "loop_end. Give either start/end markers or loop values")
+            loop_start, loop_end = start_marker, end_marker
+            start_marker = end_marker = None
+            notes.append("Clip not looping: start/end written to loop_start/loop_end, "
+                         "which is what Live plays")
         if loop_length is not None:
             if float(loop_length) <= 0:
                 raise ValueError("loop_length must be positive")
@@ -1408,6 +1428,8 @@ class AbletonMCP(ControlSurface):
         if start_marker is not None or end_marker is not None:
             self._set_pair(clip, "start_marker", "end_marker", start_marker, end_marker)
         info = self._get_clip_loop(track_index, clip_index, location)
+        if notes:
+            info["notes"] = notes
         requested = {"looping": looping, "loop_start": loop_start, "loop_end": loop_end,
                      "start_marker": start_marker, "end_marker": end_marker}
         adjusted = {}
