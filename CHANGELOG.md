@@ -11,6 +11,10 @@ The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), 
 - **Clip loop and markers:** `get_clip_loop` and `set_clip_loop` read and change the loop switch, the loop brace (`loop_start`, `loop_end`, or `loop_length`) and the start/end markers, on Session and Arrangement clips. Live refuses a start at or past the end at any moment, so the writes are ordered by the direction of the move, and both ranges are checked before anything is written. The reply gives the applied values and an `adjusted` entry for any value Live changed. Units are reported: beats, or seconds for an unwarped audio clip.
 - A `playback` summary says what actually plays. Live 12.4.5 plays an unlooped clip from `loop_start` to `loop_end` and ignores a `start_marker` write on it, so start/end markers given for an unlooped clip are written to the loop brace (the reply says so).
 
+### Fixed
+
+- `set_clip_warp(original_bpm=…)` rounded the end marker down to a whole beat: a 16-beat drum loop 1 ms short at 140 BPM got its marker at beat 15. A file within 0.02 beat of a whole number of beats is now pinned to that beat (to the end of the file when it is a hair short, never past it), and the reply says so.
+
 ## Remote Script 1.10.0
 
 ### Added

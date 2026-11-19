@@ -462,3 +462,35 @@ def test_adding_a_marker_without_sample_time_is_refused_before_any_change(
     with pytest.raises(ValueError, match="needs a sample_time"):
         inst._edit_warp_markers(0, 0, remove=[8.0], add=[{"beat_time": 4.0}])
     assert [m.beat_time for m in clip.warp_markers] == [0.0, 8.0, 16.0]
+
+
+
+# ------------------------------------------- original_bpm rounding (demo)
+# A 16-beat drum loop at 140 BPM measured 6.856 s (1 ms short of 6.857 s):
+# rounding down put the end marker at beat 15.
+
+def test_a_loop_a_hair_short_of_16_beats_is_pinned_to_beat_16(script_module):
+    seconds = 6.856031746031746
+    inst, clip, _ = make(script_module, clip=FakeClip(
+        seconds=seconds, markers=((0.0, 0.0), (16.0, seconds))))
+    info = inst._set_clip_warp(0, 0, original_bpm=140)
+    end = [m for m in clip.warp_markers if m.beat_time > 0][-1]
+    assert end.beat_time == 16.0
+    assert end.sample_time == pytest.approx(seconds, abs=1e-4)  # clamped to the file
+    assert any("before beat 16" in n for n in info["notes"])
+
+
+def test_a_loop_a_hair_long_is_pinned_to_the_exact_beat_time(script_module):
+    seconds = 16 * 60.0 / 140 + 0.002
+    inst, clip, _ = make(script_module, clip=FakeClip(seconds=seconds))
+    info = inst._set_clip_warp(0, 0, original_bpm=140)
+    end = [m for m in clip.warp_markers if m.beat_time > 0][-1]
+    assert (end.beat_time, round(end.sample_time, 6)) == (16.0, round(16 * 60.0 / 140, 6))
+    assert not any("before beat" in n for n in info["notes"])
+
+
+def test_a_real_partial_beat_still_rounds_down(script_module):
+    # 8 s at 131 BPM = 17.47 beats: not near a whole beat, keep 17.
+    inst, clip, _ = make(script_module)
+    inst._set_clip_warp(0, 0, original_bpm=131)
+    assert [m.beat_time for m in clip.warp_markers][-1] == 17.0

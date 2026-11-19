@@ -106,6 +106,9 @@ WARP_MODES_BY_NAME["repitch"] = 3
 MAX_AUTOMATION_STEPS = 4096
 # Live keeps a "shadow" warp marker this many beats after the last one.
 SHADOW_MARKER_GAP = 1.0 / 32
+# original_bpm: a file within this many beats of a whole number of beats
+# is pinned to that beat instead of being rounded down.
+CONFORM_SNAP_BEATS = 0.02
 # How far after a sample time get_clip_automation reads (see there).
 ENVELOPE_PROBE_OFFSET = 1e-4
 
@@ -1579,20 +1582,36 @@ class AbletonMCP(ControlSurface):
         else:
             start_beat, start_sec = 0.0, 0.0
         seconds_per_beat = 60.0 / bpm
-        whole_beats = int((duration - start_sec) / seconds_per_beat + 1e-6)
+        exact_beats = (duration - start_sec) / seconds_per_beat
+        notes = []
+        nearest = int(round(exact_beats))
+        if nearest >= 1 and abs(exact_beats - nearest) <= CONFORM_SNAP_BEATS:
+            # Loops are often a few samples off a whole number of beats
+            # (a 16-beat loop at 140 BPM measured 1 ms short): pin the end
+            # to that beat rather than rounding down and losing one.
+            whole_beats = nearest
+        else:
+            whole_beats = int(exact_beats + 1e-6)
         if whole_beats < 1:
             raise ValueError("The sample is shorter than one beat at %.2f BPM" % bpm)
         end_beat = start_beat + whole_beats
         end_sec = start_sec + whole_beats * seconds_per_beat
+        if end_sec > duration:
+            # Never ask for a marker past the end of the file.
+            notes.append("The file ends %.1f ms before beat %g at %.2f BPM; that beat is "
+                         "pinned to the end of the file" % ((end_sec - duration) * 1000.0,
+                                                           end_beat, bpm))
+            end_sec = duration
         return {"bpm": bpm, "old_markers": markers, "end_beat": end_beat,
-                "end_sec": end_sec, "end_marker": self._new_warp_marker(end_beat, end_sec)}
+                "end_sec": end_sec, "notes": notes,
+                "end_marker": self._new_warp_marker(end_beat, end_sec)}
 
     def _apply_conform(self, clip, plan):
         """Keep the first marker, drop the others, pin the end; undo on failure.
 
         Live's shadow marker (1/32 beat after the last one) is left alone.
         """
-        notes = []
+        notes = list(plan.get("notes", []))
         removed = []
         to_remove = plan["old_markers"][1:]
         # The last marker is usually Live's "shadow marker", 1/32 beat after
