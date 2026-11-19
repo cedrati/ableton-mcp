@@ -22,6 +22,15 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("AbletonMCPServer")
 
+
+class AbletonCommandError(Exception):
+    """Live received the command and refused it (status "error").
+
+    The connection is fine: the message is Live's own explanation
+    (out-of-range index, master track can't be muted, ...).
+    """
+
+
 @dataclass
 class AbletonConnection:
     host: str
@@ -172,7 +181,7 @@ class AbletonConnection:
 
             if response.get("status") == "error":
                 logger.error(f"Ableton error: {response.get('message')}")
-                raise Exception(response.get("message", "Unknown error from Ableton"))
+                raise AbletonCommandError(response.get("message", "Unknown error from Ableton"))
             
             return response.get("result", {})
         except socket.timeout:
@@ -189,6 +198,10 @@ class AbletonConnection:
                 logger.error(f"Raw response (first 200 bytes): {response_data[:200]}")
             self.sock = None
             raise Exception(f"Invalid response from Ableton: {str(e)}")
+        except AbletonCommandError:
+            # A refusal from Live, not a transport failure: keep the socket
+            # and pass Live's message through unchanged.
+            raise
         except Exception as e:
             logger.error(f"Error communicating with Ableton: {str(e)}")
             self.sock = None

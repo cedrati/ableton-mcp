@@ -4,6 +4,13 @@ Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-m
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.8.2
+
+### Fixed
+
+- **Error messages:** refusals from Live (out-of-range index, master track can't be muted…) are no longer prefixed with `Communication error with Ableton:`, which suggested a connection problem. The server also keeps the socket open after such a refusal instead of dropping it and reconnecting. Real transport failures (timeout, lost connection, invalid response) are reported as before.
+- **Master track name:** `get_session_info` reported the master as `"Master"` (hardcoded) while the mixer tools reported Live's actual name (`"Main"` in Live 12). It now reads the name from Live.
+
 ## Remote Script 1.8.1
 
 ### Fixed

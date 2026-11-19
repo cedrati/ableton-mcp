@@ -34,7 +34,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.8.1"
+SCRIPT_VERSION = "1.8.2"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -644,7 +644,8 @@ class AbletonMCP(ControlSurface):
                 "track_count": len(self._song.tracks),
                 "return_track_count": len(self._song.return_tracks),
                 "master_track": {
-                    "name": "Master",
+                    # Live 12 calls it "Main"; read it instead of hardcoding.
+                    "name": getattr(self._song.master_track, "name", None) or "Master",
                     "volume": self._song.master_track.mixer_device.volume.value,
                     "panning": self._song.master_track.mixer_device.panning.value
                 },

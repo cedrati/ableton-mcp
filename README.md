@@ -92,7 +92,7 @@ uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-
 uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp-install-script --list-targets
 ```
 
-> The server and the Remote Script must come from the same version: the fork's server needs the fork's script (1.8.1). Install both from this repository.
+> The server and the Remote Script must come from the same version: the fork's server needs the fork's script (1.8.2). Install both from this repository.
 
 **4. Connect**
 
@@ -101,7 +101,7 @@ uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-
 3. In the **Control Surface** dropdown, select **AbletonMCP**
 4. Set **Input** and **Output** to **None**
 
-That's it — ask Claude to build something. To check the setup, ask Claude to run `get_remote_script_info`: it should report `script_version` 1.8.1 and `up_to_date: true`.
+That's it — ask Claude to build something. To check the setup, ask Claude to run `get_remote_script_info`: it should report `script_version` 1.8.2 and `up_to_date: true`.
 
 ---
 
@@ -357,7 +357,6 @@ Here are some examples of what you can ask Claude to do:
 ### Known limitations
 
 - There is no tool to **delete a locator** yet; remove it by hand in the Arrangement view.
-- Errors raised by Live are prefixed with `Communication error with Ableton:` even when they are ordinary refusals (out-of-range value, occupied clip slot…), not connection problems.
 - Device `type` is reported as `unknown` for Live's native instruments and effects.
 - The capability list returned by `get_remote_script_info` doesn't include every command the script supports (e.g. `set_tempo`, `fire_clip`), but they work.
 
