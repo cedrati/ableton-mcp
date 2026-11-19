@@ -997,6 +997,262 @@ def delete_clip(ctx: Context, track_index: int, clip_index: int, user_prompt: st
         return f"Error deleting clip: {str(e)}"
 
 
+# ── Mixer / tracks / scenes ──────────────────────────────────────────────────
+
+def _send_with_capability(command: str, params: Dict[str, Any], label: str) -> str:
+    """Send a command after checking the Remote Script supports it."""
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability(command)
+        if missing:
+            return missing
+        ableton = get_ableton_connection()
+        result = ableton.send_command(command, params)
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        logger.error(f"Error {label}: {str(e)}")
+        return f"Error {label}: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("set_track_volume")
+def set_track_volume(
+    ctx: Context, track_index: int, volume: float, track_type: str = "track", user_prompt: str = ""
+) -> str:
+    """
+    Set a track's volume fader.
+
+    Parameters:
+    - track_index: Index of the track (ignored when track_type is "master")
+    - volume: Normalized fader value 0.0–1.0 (0.85 ≈ 0 dB, 0.0 = -inf)
+    - track_type: "track" (default), "return" or "master"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_track_volume", {
+        "track_index": track_index, "volume": volume, "track_type": track_type,
+    }, "setting track volume")
+
+
+@mcp.tool()
+@telemetry_tool("set_track_panning")
+def set_track_panning(
+    ctx: Context, track_index: int, panning: float, track_type: str = "track", user_prompt: str = ""
+) -> str:
+    """
+    Set a track's panning.
+
+    Parameters:
+    - track_index: Index of the track (ignored when track_type is "master")
+    - panning: -1.0 = full left, 0.0 = center, 1.0 = full right
+    - track_type: "track" (default), "return" or "master"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_track_panning", {
+        "track_index": track_index, "panning": panning, "track_type": track_type,
+    }, "setting track panning")
+
+
+@mcp.tool()
+@telemetry_tool("set_track_send")
+def set_track_send(
+    ctx: Context, track_index: int, send_index: int, value: float,
+    track_type: str = "track", user_prompt: str = ""
+) -> str:
+    """
+    Set the level of a send from a track to a return track.
+
+    Parameters:
+    - track_index: Index of the track
+    - send_index: Index of the send (0 = Send A / first return track)
+    - value: Send level 0.0–1.0
+    - track_type: "track" (default) or "return"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_track_send", {
+        "track_index": track_index, "send_index": send_index,
+        "value": value, "track_type": track_type,
+    }, "setting track send")
+
+
+@mcp.tool()
+@telemetry_tool("set_track_mute")
+def set_track_mute(
+    ctx: Context, track_index: int, mute: bool, track_type: str = "track", user_prompt: str = ""
+) -> str:
+    """
+    Mute or unmute a track.
+
+    Parameters:
+    - track_index: Index of the track
+    - mute: True to mute, False to unmute
+    - track_type: "track" (default) or "return"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_track_mute", {
+        "track_index": track_index, "mute": mute, "track_type": track_type,
+    }, "setting track mute")
+
+
+@mcp.tool()
+@telemetry_tool("set_track_solo")
+def set_track_solo(
+    ctx: Context, track_index: int, solo: bool, track_type: str = "track", user_prompt: str = ""
+) -> str:
+    """
+    Solo or unsolo a track.
+
+    Parameters:
+    - track_index: Index of the track
+    - solo: True to solo, False to unsolo
+    - track_type: "track" (default) or "return"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_track_solo", {
+        "track_index": track_index, "solo": solo, "track_type": track_type,
+    }, "setting track solo")
+
+
+@mcp.tool()
+@telemetry_tool("set_track_arm")
+def set_track_arm(ctx: Context, track_index: int, arm: bool, user_prompt: str = "") -> str:
+    """
+    Arm or disarm a track for recording.
+
+    Parameters:
+    - track_index: Index of the track
+    - arm: True to arm, False to disarm
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_track_arm", {
+        "track_index": track_index, "arm": arm,
+    }, "setting track arm")
+
+
+@mcp.tool()
+@telemetry_tool("delete_track")
+def delete_track(ctx: Context, track_index: int, user_prompt: str = "") -> str:
+    """
+    Delete a track. Destructive: confirm with the user before calling.
+    Indexes of the following tracks shift down by one.
+
+    Parameters:
+    - track_index: Index of the track to delete
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("delete_track", {"track_index": track_index}, "deleting track")
+
+
+@mcp.tool()
+@telemetry_tool("duplicate_track")
+def duplicate_track(ctx: Context, track_index: int, user_prompt: str = "") -> str:
+    """
+    Duplicate a track (with its clips and devices). The copy is inserted right after it.
+
+    Parameters:
+    - track_index: Index of the track to duplicate
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("duplicate_track", {"track_index": track_index}, "duplicating track")
+
+
+@mcp.tool()
+@telemetry_tool("get_scenes")
+def get_scenes(ctx: Context, user_prompt: str = "") -> str:
+    """
+    List the Session view scenes (index, name, tempo).
+
+    Parameters:
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("get_scenes", {}, "getting scenes")
+
+
+@mcp.tool()
+@telemetry_tool("create_scene")
+def create_scene(ctx: Context, index: int = -1, user_prompt: str = "") -> str:
+    """
+    Create a new scene in the Session view.
+
+    Parameters:
+    - index: Position to insert the scene (-1 = at the end)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("create_scene", {"index": index}, "creating scene")
+
+
+@mcp.tool()
+@telemetry_tool("delete_scene")
+def delete_scene(ctx: Context, scene_index: int, user_prompt: str = "") -> str:
+    """
+    Delete a scene and all clips in its row. Destructive: confirm with the user first.
+
+    Parameters:
+    - scene_index: Index of the scene to delete
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("delete_scene", {"scene_index": scene_index}, "deleting scene")
+
+
+@mcp.tool()
+@telemetry_tool("duplicate_scene")
+def duplicate_scene(ctx: Context, scene_index: int, user_prompt: str = "") -> str:
+    """
+    Duplicate a scene (with its clips). The copy is inserted right after it.
+
+    Parameters:
+    - scene_index: Index of the scene to duplicate
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("duplicate_scene", {"scene_index": scene_index}, "duplicating scene")
+
+
+@mcp.tool()
+@telemetry_tool("fire_scene")
+def fire_scene(ctx: Context, scene_index: int, user_prompt: str = "") -> str:
+    """
+    Launch a scene (all clips in its row).
+
+    Parameters:
+    - scene_index: Index of the scene to launch
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("fire_scene", {"scene_index": scene_index}, "firing scene")
+
+
+@mcp.tool()
+@telemetry_tool("set_scene_name")
+def set_scene_name(ctx: Context, scene_index: int, name: str, user_prompt: str = "") -> str:
+    """
+    Rename a scene.
+
+    Parameters:
+    - scene_index: Index of the scene
+    - name: New scene name
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_scene_name", {
+        "scene_index": scene_index, "name": name,
+    }, "renaming scene")
+
+
+@mcp.tool()
+@telemetry_tool("delete_arrangement_clip")
+def delete_arrangement_clip(ctx: Context, track_index: int, clip_index: int, user_prompt: str = "") -> str:
+    """
+    Delete a clip from the Arrangement timeline (Live 11+).
+
+    Parameters:
+    - track_index: Index of the track
+    - clip_index: Index of the clip as listed by get_arrangement_clips
+      (indexes of later clips shift down after deletion)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("delete_arrangement_clip", {
+        "track_index": track_index, "clip_index": clip_index,
+    }, "deleting arrangement clip")
+
+
 @mcp.tool()
 @telemetry_tool("start_playback")
 @trajectory_tool("start_playback")

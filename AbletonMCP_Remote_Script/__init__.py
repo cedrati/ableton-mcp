@@ -34,7 +34,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.7.1"
+SCRIPT_VERSION = "1.8.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -57,6 +57,21 @@ SCRIPT_CAPABILITIES = [
     "create_locator",
     "delete_clip",
     "clear_notes_from_clip",
+    "set_track_volume",
+    "set_track_panning",
+    "set_track_send",
+    "set_track_mute",
+    "set_track_solo",
+    "set_track_arm",
+    "delete_track",
+    "duplicate_track",
+    "get_scenes",
+    "create_scene",
+    "delete_scene",
+    "duplicate_scene",
+    "fire_scene",
+    "set_scene_name",
+    "delete_arrangement_clip",
 ]
 
 def create_instance(c_instance):
@@ -300,7 +315,16 @@ class AbletonMCP(ControlSurface):
                                  "switch_to_arrangement_view", "set_current_song_time",
                                  "duplicate_session_clip_to_arrangement",
                                  "map_rack_magnitude", "inspect_rack",
-                                 "create_locator"]:
+                                 "create_locator",
+                                 # Mixer / tracks / scenes
+                                 "set_track_volume", "set_track_panning",
+                                 "set_track_send", "set_track_mute",
+                                 "set_track_solo", "set_track_arm",
+                                 "delete_track", "duplicate_track",
+                                 "create_scene", "delete_scene",
+                                 "duplicate_scene", "fire_scene",
+                                 "set_scene_name",
+                                 "delete_arrangement_clip"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -400,6 +424,48 @@ class AbletonMCP(ControlSurface):
                             name = params.get("name", "")
                             time_val = params.get("time", 0.0)
                             result = self._create_locator(name, time_val)
+                        # ── Mixer / tracks / scenes ────────────────────────────────
+                        elif command_type == "set_track_volume":
+                            result = self._set_track_volume(
+                                params.get("track_index", 0), params.get("volume", 0.85),
+                                params.get("track_type", "track"))
+                        elif command_type == "set_track_panning":
+                            result = self._set_track_panning(
+                                params.get("track_index", 0), params.get("panning", 0.0),
+                                params.get("track_type", "track"))
+                        elif command_type == "set_track_send":
+                            result = self._set_track_send(
+                                params.get("track_index", 0), params.get("send_index", 0),
+                                params.get("value", 0.0), params.get("track_type", "track"))
+                        elif command_type == "set_track_mute":
+                            result = self._set_track_mute(
+                                params.get("track_index", 0), params.get("mute", True),
+                                params.get("track_type", "track"))
+                        elif command_type == "set_track_solo":
+                            result = self._set_track_solo(
+                                params.get("track_index", 0), params.get("solo", True),
+                                params.get("track_type", "track"))
+                        elif command_type == "set_track_arm":
+                            result = self._set_track_arm(
+                                params.get("track_index", 0), params.get("arm", True))
+                        elif command_type == "delete_track":
+                            result = self._delete_track(params.get("track_index", 0))
+                        elif command_type == "duplicate_track":
+                            result = self._duplicate_track(params.get("track_index", 0))
+                        elif command_type == "create_scene":
+                            result = self._create_scene(params.get("index", -1))
+                        elif command_type == "delete_scene":
+                            result = self._delete_scene(params.get("scene_index", 0))
+                        elif command_type == "duplicate_scene":
+                            result = self._duplicate_scene(params.get("scene_index", 0))
+                        elif command_type == "fire_scene":
+                            result = self._fire_scene(params.get("scene_index", 0))
+                        elif command_type == "set_scene_name":
+                            result = self._set_scene_name(
+                                params.get("scene_index", 0), params.get("name", ""))
+                        elif command_type == "delete_arrangement_clip":
+                            result = self._delete_arrangement_clip(
+                                params.get("track_index", 0), params.get("clip_index", 0))
 
                         # Put the result in the queue
                         response_queue.put({"status": "success", "result": result})
@@ -467,6 +533,8 @@ class AbletonMCP(ControlSurface):
                     include_notes=include_notes,
                     include_params=include_params,
                 )
+            elif command_type == "get_scenes":
+                response["result"] = self._get_scenes()
             elif command_type == "drain_passive_events":
                 response["result"] = self._drain_passive_events()
             elif command_type == "set_device_parameter":
@@ -949,6 +1017,150 @@ class AbletonMCP(ControlSurface):
         except Exception as e:
             self.log_message("Error deleting clip: " + str(e))
             raise
+
+    # ── Mixer / track / scene implementations ─────────────────────────────────
+
+    def _resolve_track(self, track_index, track_type="track"):
+        """Return (track, label) for a regular, return or master track."""
+        track_type = (track_type or "track").lower()
+        if track_type == "master":
+            return self._song.master_track, "master"
+        if track_type == "return":
+            tracks = self._song.return_tracks
+        elif track_type == "track":
+            tracks = self._song.tracks
+        else:
+            raise ValueError("track_type must be 'track', 'return' or 'master'")
+        if track_index < 0 or track_index >= len(tracks):
+            raise IndexError("%s index out of range" % track_type.capitalize())
+        return tracks[track_index], "%s %d" % (track_type, track_index)
+
+    def _set_param_value(self, param, value):
+        """Clamp value to the parameter's range and apply it."""
+        value = max(param.min, min(param.max, float(value)))
+        param.value = value
+        return param.value
+
+    def _set_track_volume(self, track_index, volume, track_type="track"):
+        """Set track volume (Live's normalized fader value, 0.0–1.0; 0.85 ≈ 0 dB)."""
+        track, label = self._resolve_track(track_index, track_type)
+        param = track.mixer_device.volume
+        new_value = self._set_param_value(param, volume)
+        return {"track": label, "name": track.name, "volume": new_value,
+                "display": param.str_for_value(new_value)}
+
+    def _set_track_panning(self, track_index, panning, track_type="track"):
+        """Set track panning (-1.0 = left, 0.0 = center, 1.0 = right)."""
+        track, label = self._resolve_track(track_index, track_type)
+        param = track.mixer_device.panning
+        new_value = self._set_param_value(param, panning)
+        return {"track": label, "name": track.name, "panning": new_value,
+                "display": param.str_for_value(new_value)}
+
+    def _set_track_send(self, track_index, send_index, value, track_type="track"):
+        """Set a send level (0.0–1.0) from a track to a return track."""
+        track, label = self._resolve_track(track_index, track_type)
+        sends = track.mixer_device.sends
+        if send_index < 0 or send_index >= len(sends):
+            raise IndexError("Send index out of range (track has %d sends)" % len(sends))
+        param = sends[send_index]
+        new_value = self._set_param_value(param, value)
+        return {"track": label, "name": track.name, "send_index": send_index,
+                "send_name": param.name, "value": new_value,
+                "display": param.str_for_value(new_value)}
+
+    def _set_track_mute(self, track_index, mute, track_type="track"):
+        track, label = self._resolve_track(track_index, track_type)
+        if track_type == "master":
+            raise ValueError("The master track cannot be muted")
+        track.mute = bool(mute)
+        return {"track": label, "name": track.name, "mute": track.mute}
+
+    def _set_track_solo(self, track_index, solo, track_type="track"):
+        track, label = self._resolve_track(track_index, track_type)
+        if track_type == "master":
+            raise ValueError("The master track cannot be soloed")
+        track.solo = bool(solo)
+        return {"track": label, "name": track.name, "solo": track.solo}
+
+    def _set_track_arm(self, track_index, arm):
+        track, label = self._resolve_track(track_index, "track")
+        if not track.can_be_armed:
+            raise ValueError("Track '%s' cannot be armed" % track.name)
+        track.arm = bool(arm)
+        return {"track": label, "name": track.name, "arm": track.arm}
+
+    def _delete_track(self, track_index):
+        track, _ = self._resolve_track(track_index, "track")
+        name = track.name
+        self._song.delete_track(track_index)
+        return {"deleted": True, "track_index": track_index, "name": name,
+                "track_count": len(self._song.tracks)}
+
+    def _duplicate_track(self, track_index):
+        track, _ = self._resolve_track(track_index, "track")
+        self._song.duplicate_track(track_index)
+        new_track = self._song.tracks[track_index + 1]
+        return {"duplicated": True, "source_index": track_index,
+                "new_index": track_index + 1, "name": new_track.name}
+
+    def _get_scene(self, scene_index):
+        scenes = self._song.scenes
+        if scene_index < 0 or scene_index >= len(scenes):
+            raise IndexError("Scene index out of range (%d scenes)" % len(scenes))
+        return scenes[scene_index]
+
+    def _create_scene(self, index=-1):
+        self._song.create_scene(index)
+        new_index = len(self._song.scenes) - 1 if index == -1 else index
+        return {"created": True, "index": new_index,
+                "scene_count": len(self._song.scenes)}
+
+    def _delete_scene(self, scene_index):
+        scene = self._get_scene(scene_index)
+        if len(self._song.scenes) <= 1:
+            raise ValueError("Cannot delete the last remaining scene")
+        name = scene.name
+        self._song.delete_scene(scene_index)
+        return {"deleted": True, "index": scene_index, "name": name,
+                "scene_count": len(self._song.scenes)}
+
+    def _duplicate_scene(self, scene_index):
+        self._get_scene(scene_index)
+        self._song.duplicate_scene(scene_index)
+        return {"duplicated": True, "source_index": scene_index,
+                "new_index": scene_index + 1}
+
+    def _fire_scene(self, scene_index):
+        scene = self._get_scene(scene_index)
+        scene.fire()
+        return {"fired": True, "index": scene_index, "name": scene.name}
+
+    def _set_scene_name(self, scene_index, name):
+        scene = self._get_scene(scene_index)
+        scene.name = name
+        return {"index": scene_index, "name": scene.name}
+
+    def _get_scenes(self):
+        return {"scenes": [
+            {"index": i, "name": s.name,
+             "tempo": s.tempo if getattr(s, "tempo_enabled", True) else None}
+            for i, s in enumerate(self._song.scenes)
+        ]}
+
+    def _delete_arrangement_clip(self, track_index, clip_index):
+        """Delete a clip from the Arrangement (index as listed by get_arrangement_clips)."""
+        track, _ = self._resolve_track(track_index, "track")
+        clips = list(track.arrangement_clips)
+        if clip_index < 0 or clip_index >= len(clips):
+            raise IndexError("Arrangement clip index out of range (%d clips)" % len(clips))
+        clip = clips[clip_index]
+        info = {"name": clip.name, "start_time": clip.start_time,
+                "end_time": clip.end_time}
+        # Track.delete_clip(clip) is available in Live 11+.
+        track.delete_clip(clip)
+        info["deleted"] = True
+        return info
 
 
     def _start_playback(self):
