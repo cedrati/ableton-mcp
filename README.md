@@ -295,6 +295,7 @@ Once the config file has been set on Claude, and the remote script is running in
 - Warp audio clips: mode, warp markers, conform a loop to the song tempo *(fork)*
 - Clip automation envelopes for device and mixer parameters *(fork)*
 - Read and edit notes in Arrangement clips *(fork)*
+- Clip loop brace and start/end markers *(fork)*
 
 ### Tools added by this fork
 
@@ -321,6 +322,8 @@ Once the config file has been set on Claude, and the remote script is running in
 | `get_clip_automation` | Samples a clip envelope every `resolution` beats. |
 | `get_clip_notes` / `add_notes_to_clip` / `clear_notes_from_clip` | Take `location="arrangement"` (clip index as listed by `get_arrangement_clips`). Times are clip beats; Arrangement replies add `arrangement_start`, `arrangement_end` and `start_marker`. |
 | `remove_notes` | Removes the notes starting in a time range and a pitch range (e.g. one bar, or one drum lane), leaving the rest. Session or Arrangement. |
+| `get_clip_loop` | Loop switch, loop brace and start/end markers of a clip, with their units (beats, or seconds for an unwarped audio clip). |
+| `set_clip_loop` | Changes them (`loop_length` as a shortcut for the loop end). Writes are ordered so the start never passes the end; the reply lists any value Live adjusted. Session or Arrangement. |
 
 The mixer tools reply with Live's display value (e.g. `-6.0 dB`, `25L`), so you can check what actually changed.
 

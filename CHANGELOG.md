@@ -4,6 +4,12 @@ Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-m
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.11.0
+
+### Added
+
+- **Clip loop and markers:** `get_clip_loop` and `set_clip_loop` read and change the loop switch, the loop brace (`loop_start`, `loop_end`, or `loop_length`) and the start/end markers, on Session and Arrangement clips. Live refuses a start at or past the end at any moment, so the writes are ordered by the direction of the move, and both ranges are checked before anything is written. The reply gives the applied values and an `adjusted` entry for any value Live changed. Units are reported: beats, or seconds for an unwarped audio clip.
+
 ## Remote Script 1.10.0
 
 ### Added

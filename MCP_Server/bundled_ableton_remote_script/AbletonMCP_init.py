@@ -39,7 +39,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.10.0"
+SCRIPT_VERSION = "1.11.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -85,6 +85,8 @@ SCRIPT_CAPABILITIES = [
     # get/add/clear notes accept location="arrangement"; remove_notes is new.
     "arrangement_notes",
     "remove_notes",
+    "get_clip_loop",
+    "set_clip_loop",
 ]
 
 # Live's Clip.warp_mode values.
@@ -385,7 +387,7 @@ class AbletonMCP(ControlSurface):
                                  # Warp / clip automation
                                  "set_clip_warp", "edit_warp_markers",
                                  "set_clip_automation",
-                                 "remove_notes"]:
+                                 "remove_notes", "set_clip_loop"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -546,6 +548,16 @@ class AbletonMCP(ControlSurface):
                                 params.get("location", "session"),
                                 add=params.get("add"), move=params.get("move"),
                                 remove=params.get("remove"))
+                        elif command_type == "set_clip_loop":
+                            result = self._set_clip_loop(
+                                params.get("track_index", 0), params.get("clip_index", 0),
+                                params.get("location", "session"),
+                                looping=params.get("looping"),
+                                loop_start=params.get("loop_start"),
+                                loop_end=params.get("loop_end"),
+                                start_marker=params.get("start_marker"),
+                                end_marker=params.get("end_marker"),
+                                loop_length=params.get("loop_length"))
                         elif command_type == "remove_notes":
                             result = self._remove_notes(
                                 params.get("track_index", 0), params.get("clip_index", 0),
@@ -643,6 +655,10 @@ class AbletonMCP(ControlSurface):
                 )
             elif command_type == "get_scenes":
                 response["result"] = self._get_scenes()
+            elif command_type == "get_clip_loop":
+                response["result"] = self._get_clip_loop(
+                    params.get("track_index", 0), params.get("clip_index", 0),
+                    params.get("location", "session"))
             elif command_type == "get_clip_warp":
                 response["result"] = self._get_clip_warp(
                     params.get("track_index", 0), params.get("clip_index", 0),
@@ -1311,6 +1327,99 @@ class AbletonMCP(ControlSurface):
         if end <= start:
             end = start + float(clip.length)
         return start, end
+
+    # ------------------------------------------------------- loop / markers
+    def _clip_loop_info(self, clip, label):
+        audio = bool(getattr(clip, "is_audio_clip", False))
+        unwarped = audio and not bool(getattr(clip, "warping", True))
+        info = {
+            "clip": label,
+            "name": clip.name,
+            "looping": bool(clip.looping),
+            "loop_start": float(clip.loop_start),
+            "loop_end": float(clip.loop_end),
+            "start_marker": float(clip.start_marker),
+            "end_marker": float(clip.end_marker),
+            "length": float(clip.length),
+            # Live measures an unwarped audio clip's loop and markers in
+            # seconds of the file, every other clip in beats.
+            "units": "seconds" if unwarped else "beats",
+        }
+        return info
+
+    def _get_clip_loop(self, track_index, clip_index, location="session"):
+        clip, label = self._resolve_clip(track_index, clip_index, location)
+        info = self._clip_loop_info(clip, label)
+        if (location or "session").lower() == "arrangement":
+            info["arrangement_start"] = float(clip.start_time)
+            info["arrangement_end"] = float(clip.end_time)
+        return info
+
+    def _set_pair(self, clip, start_attr, end_attr, start, end):
+        """Set a start/end pair without ever making start >= end on the way.
+
+        Live refuses a start at or past the current end (and an end at or
+        before the current start), so the order depends on the move.
+        """
+        current_start = float(getattr(clip, start_attr))
+        current_end = float(getattr(clip, end_attr))
+        start = current_start if start is None else float(start)
+        end = current_end if end is None else float(end)
+        if start >= end:
+            raise ValueError("%s (%g) must be before %s (%g)" % (start_attr, start, end_attr, end))
+        if start >= current_end:
+            setattr(clip, end_attr, end)
+            setattr(clip, start_attr, start)
+        else:
+            setattr(clip, start_attr, start)
+            setattr(clip, end_attr, end)
+
+    def _set_clip_loop(self, track_index, clip_index, location="session", looping=None,
+                       loop_start=None, loop_end=None, start_marker=None, end_marker=None,
+                       loop_length=None):
+        """Change a clip's loop switch, loop brace and start/end markers.
+
+        Arguments left as None are untouched. loop_length sets loop_end to
+        loop_start + loop_length. Units are beats (seconds for an unwarped
+        audio clip, see get_clip_loop). The reply reports what Live applied;
+        `adjusted` lists any value Live changed (it snaps or clamps some).
+        """
+        clip, label = self._resolve_clip(track_index, clip_index, location)
+        if loop_length is not None:
+            if float(loop_length) <= 0:
+                raise ValueError("loop_length must be positive")
+            base = float(clip.loop_start) if loop_start is None else float(loop_start)
+            if loop_end is not None and abs(float(loop_end) - (base + float(loop_length))) > 1e-9:
+                raise ValueError("Give loop_end or loop_length, not both")
+            loop_end = base + float(loop_length)
+        # Check both pairs before writing anything.
+        for start_attr, end_attr, start, end in (
+                ("loop_start", "loop_end", loop_start, loop_end),
+                ("start_marker", "end_marker", start_marker, end_marker)):
+            s_val = float(getattr(clip, start_attr)) if start is None else float(start)
+            e_val = float(getattr(clip, end_attr)) if end is None else float(end)
+            if s_val >= e_val:
+                raise ValueError("%s (%g) must be before %s (%g)"
+                                 % (start_attr, s_val, end_attr, e_val))
+        if looping is not None:
+            clip.looping = bool(looping)
+        if loop_start is not None or loop_end is not None:
+            self._set_pair(clip, "loop_start", "loop_end", loop_start, loop_end)
+        if start_marker is not None or end_marker is not None:
+            self._set_pair(clip, "start_marker", "end_marker", start_marker, end_marker)
+        info = self._get_clip_loop(track_index, clip_index, location)
+        requested = {"looping": looping, "loop_start": loop_start, "loop_end": loop_end,
+                     "start_marker": start_marker, "end_marker": end_marker}
+        adjusted = {}
+        for key, wanted in requested.items():
+            if wanted is None:
+                continue
+            got = info[key]
+            if (bool(got) != bool(wanted)) if key == "looping" else abs(float(got) - float(wanted)) > 1e-6:
+                adjusted[key] = {"requested": wanted, "applied": got}
+        if adjusted:
+            info["adjusted"] = adjusted
+        return info
 
     # ------------------------------------------------------------- warp
     def _require_audio_clip(self, clip):

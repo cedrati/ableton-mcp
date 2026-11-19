@@ -1359,6 +1359,75 @@ def _without_none(params: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @mcp.tool()
+@telemetry_tool("get_clip_loop")
+def get_clip_loop(
+    ctx: Context, track_index: int, clip_index: int, location: str = "session", user_prompt: str = ""
+) -> str:
+    """
+    Read a clip's loop switch, loop brace (loop_start / loop_end) and start /
+    end markers. Units are beats, except for an unwarped audio clip, where
+    Live uses seconds of the file (see "units" in the reply). For an
+    Arrangement clip the reply also gives its place in the song.
+
+    Parameters:
+    - track_index: Index of the track
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - location: "session" (default) or "arrangement"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("get_clip_loop", {
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+    }, "reading clip loop")
+
+
+@mcp.tool()
+@telemetry_tool("set_clip_loop")
+def set_clip_loop(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    location: str = "session",
+    looping: Union[bool, None] = None,
+    loop_start: Union[float, None] = None,
+    loop_end: Union[float, None] = None,
+    loop_length: Union[float, None] = None,
+    start_marker: Union[float, None] = None,
+    end_marker: Union[float, None] = None,
+    user_prompt: str = "",
+) -> str:
+    """
+    Change a clip's loop and markers. Arguments left out are untouched.
+
+    - The loop brace (loop_start → loop_end) is the part that repeats when
+      looping is on. Shorten a 4-bar loop to its first bar with
+      loop_start=0, loop_length=4.
+    - The start marker is where playback begins; the end marker is where it
+      stops when looping is off. To play another part of a sample, move
+      start_marker (and the loop brace, if looping).
+
+    Units are beats (seconds for an unwarped audio clip: check get_clip_loop).
+    The order of the writes is handled so the start never passes the end on
+    the way. The reply shows what Live applied; "adjusted" lists any value
+    it changed.
+
+    Parameters:
+    - track_index: Index of the track
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - location: "session" (default) or "arrangement"
+    - looping: Loop switch on or off
+    - loop_start, loop_end: Loop brace
+    - loop_length: Sets loop_end = loop_start + loop_length (instead of loop_end)
+    - start_marker, end_marker: Playback start / end markers
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_clip_loop", _without_none({
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+        "looping": looping, "loop_start": loop_start, "loop_end": loop_end,
+        "loop_length": loop_length, "start_marker": start_marker, "end_marker": end_marker,
+    }), "setting clip loop")
+
+
+@mcp.tool()
 @telemetry_tool("get_clip_warp")
 def get_clip_warp(
     ctx: Context, track_index: int, clip_index: int, location: str = "session", user_prompt: str = ""
