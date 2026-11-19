@@ -1400,21 +1400,22 @@ def set_clip_automation(
     user_prompt: str = "",
 ) -> str:
     """
-    Write a clip automation envelope for one parameter (works on Session clips
-    and on clips placed in the Arrangement; the envelope plays with the clip).
+    Write a clip automation envelope for one parameter on a Session clip; the
+    envelope plays whenever the clip plays. Live's API refuses clip automation
+    on Arrangement clips, and Arrangement automation lanes aren't reachable.
 
     Target either a device parameter (device_index + parameter_index, see
     get_device_parameters) or a track mixer control (mixer_parameter).
 
     Parameters:
     - track_index: Index of the track that owns the clip and the parameter
-    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - clip_index: Session slot index
     - points: [{"time": 0, "value": 0.2}, {"time": 16, "value": 0.9}] — time in
       beats in clip time (0 = clip start, like MIDI note start_time), value in
       the parameter's units (clamped to its min/max). The last point holds
       until the clip's end. An empty list with clear_first=true removes the
       envelope.
-    - location: "session" (default) or "arrangement"
+    - location: "session" (the only location Live accepts for writing)
     - device_index: Device in the track's chain (ignored when mixer_parameter is set)
     - parameter_index: Index into the device's parameters
     - mixer_parameter: "volume", "panning" or "send:N" (N = return track index)

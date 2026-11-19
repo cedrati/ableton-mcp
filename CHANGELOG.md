@@ -11,7 +11,7 @@ The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), 
 New MCP tools and matching Remote Script commands. Each takes `location`: `session` (clip slot index) or `arrangement` (index as listed by `get_arrangement_clips`).
 
 - **Warp:** `get_clip_warp`, `set_clip_warp` (warping, warp mode, pitch, gain), `edit_warp_markers` (Live 11+). `set_clip_warp(original_bpm=…)` conforms a loop to the song tempo: it turns warping on, keeps the first warp marker and pins the last whole beat of the file to its time at that tempo.
-- **Clip automation:** `set_clip_automation` writes a clip envelope for a device parameter or a mixer control (volume, panning, sends), from points with linear ramps or held steps; an empty point list clears it. `get_clip_automation` samples an envelope back. Live's API exposes clip envelopes, not track automation lanes in the Arrangement, so the envelope lives in the clip and moves with it.
+- **Clip automation:** `set_clip_automation` writes a clip envelope for a device parameter or a mixer control (volume, panning, sends), from points with linear ramps or held steps; an empty point list clears it. `get_clip_automation` samples an envelope back. Session clips only: Live 12 refuses clip automation on Arrangement clips from a script, and Arrangement automation lanes aren't reachable from its API.
 
 ### Internal
 

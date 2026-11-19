@@ -28,12 +28,15 @@ class FakeEnvelope(object):
     def insert_step(self, start, duration, value):
         self.steps.append((start, duration, value))
 
+    initial = 0.0
+
     def value_at_time(self, t):
-        value = None
+        # Left-continuous like Live: on a boundary, the previous step's value.
+        value = self.initial
         for start, duration, v in self.steps:
-            if start <= t < start + duration:
+            if start < t <= start + duration:
                 value = v
-        return value if value is not None else 0.0
+        return value
 
 
 class FakeClip(object):
@@ -321,7 +324,7 @@ def test_get_clip_automation_samples_the_envelope(script_module):
     inst._set_clip_automation(0, 0, mixer_parameter="volume", interpolation="step",
                               points=[{"time": 0, "value": 0.2}, {"time": 2, "value": 0.8}])
     got = inst._get_clip_automation(0, 0, mixer_parameter="volume", resolution=1.0)
-    assert [s["value"] for s in got["samples"]] == [0.2, 0.2, 0.8, 0.8, 0.0]
+    assert [s["value"] for s in got["samples"]] == [0.2, 0.2, 0.8, 0.8, 0.8]
 
 
 def test_bad_parameter_targets_are_refused(script_module):
@@ -359,3 +362,77 @@ def test_write_commands_dispatch_on_the_main_thread(script_module):
         "track_index": 0, "clip_index": 0, "warp_mode": "complex", "original_bpm": 120}})
     assert reply["status"] == "success", reply
     assert clip.warp_mode == 4 and clip.warping is True
+
+
+# --------------------------------------- Live.Clip.WarpMarker (1.9.0 fix)
+# Found in Live 12.4.5: Clip.add_warp_marker refuses a dict ("No registered
+# converter ... TWarpMarker from this Python object of type dict") and, as
+# the markers had already been removed, left the clip without its end marker.
+
+class _StrictClip(FakeClip):
+    """Accepts only FakeLiveWarpMarker objects, like Live's Python API."""
+
+    def add_warp_marker(self, marker):
+        if not isinstance(marker, FakeLiveWarpMarker):
+            raise TypeError("No registered converter to TWarpMarker from dict")
+        self.warp_markers.append(FakeWarpMarker(marker.beat_time, marker.sample_time))
+        self.warp_markers.sort(key=lambda m: m.beat_time)
+
+
+class FakeLiveWarpMarker(object):
+    """Positional only, (sample_time, beat_time): the order we must not assume."""
+
+    def __init__(self, *args, **kwargs):
+        if kwargs:
+            raise TypeError("Python argument types did not match C++ signature")
+        self.sample_time, self.beat_time = args
+
+
+@pytest.fixture
+def live_api(script_module, monkeypatch):
+    import types
+    live = types.SimpleNamespace(Clip=types.SimpleNamespace(WarpMarker=FakeLiveWarpMarker))
+    monkeypatch.setattr(script_module, "Live", live)
+    return live
+
+
+def test_conform_builds_a_live_warp_marker_in_the_right_order(script_module, live_api):
+    inst, clip, _ = make(script_module, clip=_StrictClip())
+    inst._set_clip_warp(0, 0, original_bpm=120)
+    assert [(m.beat_time, m.sample_time) for m in clip.warp_markers] == [
+        (0.0, 0.0), (16.0, 8.0)]
+
+
+def test_refused_end_marker_restores_the_removed_markers(script_module, live_api):
+    inst, clip, _ = make(script_module, clip=_StrictClip(
+        markers=((0.0, 0.0), (16.0, 8.0), (16.03125, 8.015))))
+    original_add = clip.add_warp_marker
+    calls = {"n": 0}
+
+    def refuse_first(marker):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("Constraint violated")
+        original_add(marker)
+    clip.add_warp_marker = refuse_first
+    with pytest.raises(RuntimeError, match="restored 2 of 2"):
+        inst._set_clip_warp(0, 0, original_bpm=120)
+    assert [(m.beat_time, m.sample_time) for m in clip.warp_markers] == [
+        (0.0, 0.0), (16.0, 8.0), (16.03125, 8.015)]
+
+
+def test_edit_warp_markers_builds_markers_before_touching_the_clip(script_module, live_api):
+    inst, clip, _ = make(script_module, clip=_StrictClip())
+    clip.warping = True
+    inst._edit_warp_markers(0, 0, add=[{"beat_time": 8.0, "sample_time": 4.0}])
+    assert (8.0, 4.0) in [(m.beat_time, m.sample_time) for m in clip.warp_markers]
+
+
+def test_arrangement_automation_is_refused_with_an_explanation(script_module):
+    # Live 12.4.5: "Not a session clip or parameter belongs to another track."
+    arr = FakeClip(audio=False)
+    inst, _, _ = make(script_module, arrangement_clip=arr)
+    with pytest.raises(ValueError, match="Session clips"):
+        inst._set_clip_automation(0, 0, location="arrangement", mixer_parameter="volume",
+                                  points=[{"time": 0, "value": 0.5}])
+    assert arr.envelopes == {}

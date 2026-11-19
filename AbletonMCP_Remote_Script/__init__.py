@@ -15,6 +15,11 @@ try:
 except ImportError:
     import queue  # Python 3
 
+try:
+    import Live  # only importable inside Ableton Live
+except ImportError:
+    Live = None
+
 # Constants for socket communication
 DEFAULT_PORT = 9877
 # Loopback, not 0.0.0.0. This socket takes unauthenticated commands that import
@@ -94,6 +99,8 @@ WARP_MODES_BY_NAME["repitch"] = 3
 
 # Upper bound on envelope steps written or sampled in one command.
 MAX_AUTOMATION_STEPS = 4096
+# How far after a sample time get_clip_automation reads (see there).
+ENVELOPE_PROBE_OFFSET = 1e-4
 
 # Live applies some writes (song.current_song_time, browser.load_item,
 # song.set_or_delete_cue) asynchronously: reading the state back in the same
@@ -1360,16 +1367,18 @@ class AbletonMCP(ControlSurface):
         original_bpm conforms the clip to the song tempo: warping is turned on
         and the warp markers are rebuilt so the audio is read at that tempo
         (first marker kept, one marker at the last whole beat of the file).
+        Everything that can be checked is checked before the clip is touched.
         """
         clip, label = self._resolve_clip(track_index, clip_index, location)
         self._require_audio_clip(clip)
-        if original_bpm is not None and float(original_bpm) <= 0:
-            raise ValueError("original_bpm must be positive")
-        notes = []
-        if warp_mode is not None:
-            clip.warp_mode = self._parse_warp_mode(clip, warp_mode)
+        mode = self._parse_warp_mode(clip, warp_mode) if warp_mode is not None else None
+        plan = None
         if original_bpm is not None:
+            plan = self._plan_conform(clip, float(original_bpm))
             warping = True
+        notes = []
+        if mode is not None:
+            clip.warp_mode = mode
         if warping is not None:
             clip.warping = bool(warping)
         if pitch_coarse is not None:
@@ -1378,14 +1387,55 @@ class AbletonMCP(ControlSurface):
             clip.pitch_fine = float(max(-50.0, min(50.0, float(pitch_fine))))
         if gain is not None:
             clip.gain = float(max(0.0, min(1.0, float(gain))))
-        if original_bpm is not None:
-            notes.extend(self._conform_to_bpm(clip, float(original_bpm)))
+        if plan is not None:
+            notes.extend(self._apply_conform(clip, plan))
         info = self._clip_warp_info(clip, label)
         if notes:
             info["notes"] = notes
         return info
 
-    def _conform_to_bpm(self, clip, bpm):
+    def _new_warp_marker(self, beat_time, sample_time=None):
+        """Build what Clip.add_warp_marker accepts.
+
+        Live's Python API wants a Live.Clip.WarpMarker (a dict, which Max for
+        Live accepts, is refused). The constructor's argument names aren't
+        documented, so keywords are tried first, then positional arguments,
+        and the result is checked through the object's own properties so the
+        two times can't end up swapped. Outside Live (tests) a dict is used.
+        """
+        cls = getattr(getattr(Live, "Clip", None), "WarpMarker", None) if Live else None
+        if cls is None:
+            marker = {"beat_time": float(beat_time)}
+            if sample_time is not None:
+                marker["sample_time"] = float(sample_time)
+            return marker
+        beat_time = float(beat_time)
+        if sample_time is None:
+            attempts = [lambda: cls(beat_time=beat_time), lambda: cls(beat_time)]
+        else:
+            sample_time = float(sample_time)
+            attempts = [lambda: cls(beat_time=beat_time, sample_time=sample_time),
+                        lambda: cls(beat_time, sample_time),
+                        lambda: cls(sample_time, beat_time)]
+        errors = []
+        for attempt in attempts:
+            try:
+                marker = attempt()
+            except Exception as e:
+                errors.append(str(e))
+                continue
+            ok_beat = abs(float(getattr(marker, "beat_time", beat_time)) - beat_time) < 1e-6
+            ok_sample = sample_time is None or abs(
+                float(getattr(marker, "sample_time", sample_time)) - sample_time) < 1e-6
+            if ok_beat and ok_sample:
+                return marker
+            errors.append("argument order mismatch")
+        raise RuntimeError("Could not build a Live.Clip.WarpMarker: %s" % "; ".join(errors))
+
+    def _plan_conform(self, clip, bpm):
+        """Work out the marker that conforms the clip to bpm, without writing."""
+        if bpm <= 0:
+            raise ValueError("original_bpm must be positive")
         sample_rate = getattr(clip, "sample_rate", None)
         sample_length = getattr(clip, "sample_length", None)
         if not sample_rate or not sample_length:
@@ -1401,18 +1451,41 @@ class AbletonMCP(ControlSurface):
         whole_beats = int((duration - start_sec) / seconds_per_beat + 1e-6)
         if whole_beats < 1:
             raise ValueError("The sample is shorter than one beat at %.2f BPM" % bpm)
+        end_beat = start_beat + whole_beats
+        end_sec = start_sec + whole_beats * seconds_per_beat
+        return {"bpm": bpm, "old_markers": markers, "end_beat": end_beat,
+                "end_sec": end_sec, "end_marker": self._new_warp_marker(end_beat, end_sec)}
+
+    def _apply_conform(self, clip, plan):
+        """Keep the first marker, drop the others, pin the end; undo on failure.
+
+        Live keeps a hidden marker 1/32 beat after the last one and recreates
+        it by itself, so it may come back after being removed.
+        """
         notes = []
-        # Remove every marker after the first, last first.
-        for marker in reversed(markers[1:]):
+        removed = []
+        for marker in reversed(plan["old_markers"][1:]):
             try:
                 clip.remove_warp_marker(marker["beat_time"])
+                removed.append(marker)
             except Exception as e:
                 notes.append("Live kept the warp marker at beat %.3f: %s"
                              % (marker["beat_time"], e))
-        end_beat = start_beat + whole_beats
-        end_sec = start_sec + whole_beats * seconds_per_beat
-        clip.add_warp_marker({"beat_time": end_beat, "sample_time": end_sec})
-        notes.append("Conformed to %.2f BPM: beat %.3f = %.3f s" % (bpm, end_beat, end_sec))
+        try:
+            clip.add_warp_marker(plan["end_marker"])
+        except Exception as e:
+            restored = 0
+            for marker in reversed(removed):
+                try:
+                    clip.add_warp_marker(self._new_warp_marker(
+                        marker["beat_time"], marker["sample_time"]))
+                    restored += 1
+                except Exception:
+                    pass
+            raise RuntimeError("Live refused the warp marker at beat %.3f (%s); restored %d of "
+                               "%d removed markers" % (plan["end_beat"], e, restored, len(removed)))
+        notes.append("Conformed to %.2f BPM: beat %.3f = %.3f s"
+                     % (plan["bpm"], plan["end_beat"], plan["end_sec"]))
         return notes
 
     def _edit_warp_markers(self, track_index, clip_index, location="session",
@@ -1422,14 +1495,13 @@ class AbletonMCP(ControlSurface):
         self._require_audio_clip(clip)
         if not clip.warping:
             raise ValueError("Turn warping on (set_clip_warp) before editing warp markers")
+        new_markers = [self._new_warp_marker(item["beat_time"], item.get("sample_time"))
+                       for item in add or []]
         for beat_time in remove or []:
             clip.remove_warp_marker(float(beat_time))
         for item in move or []:
             clip.move_warp_marker(float(item["beat_time"]), float(item["beat_time_distance"]))
-        for item in add or []:
-            marker = {"beat_time": float(item["beat_time"])}
-            if item.get("sample_time") is not None:
-                marker["sample_time"] = float(item["sample_time"])
+        for marker in new_markers:
             clip.add_warp_marker(marker)
         return self._clip_warp_info(clip, label)
 
@@ -1493,6 +1565,12 @@ class AbletonMCP(ControlSurface):
         drawn as steps of `resolution` beats). The last point holds to the
         clip's end. Values are clamped to the parameter's range.
         """
+        if (location or "session").lower() == "arrangement":
+            # Live 12 refuses it ("Not a session clip or parameter belongs to
+            # another track"): scripts can only write Session clip envelopes.
+            raise ValueError("Live only lets scripts write clip automation on Session clips. "
+                             "Write it on a Session clip instead; Arrangement automation "
+                             "lanes aren't reachable from Live's API")
         clip, label = self._resolve_clip(track_index, clip_index, location)
         param = self._resolve_automation_parameter(
             track_index, device_index, parameter_index, mixer_parameter)
@@ -1565,9 +1643,14 @@ class AbletonMCP(ControlSurface):
             return result
         clip_start, clip_end = self._clip_time_range(clip)
         count = min(int((clip_end - clip_start) / resolution + 1e-9) + 1, MAX_AUTOMATION_STEPS)
+        # Live's value_at_time() is left-continuous: exactly on a step boundary
+        # it returns the previous step (at the clip start, the value the
+        # parameter had before automation). Read just after each time so the
+        # sample is the value in effect from that time on.
         for i in range(count):
             t = clip_start + i * resolution
-            result["samples"].append({"time": t, "value": float(envelope.value_at_time(t))})
+            probe = min(t + ENVELOPE_PROBE_OFFSET, clip_end)
+            result["samples"].append({"time": t, "value": float(envelope.value_at_time(probe))})
         return result
 
 
