@@ -1278,6 +1278,192 @@ def delete_arrangement_clip(ctx: Context, track_index: int, clip_index: int, use
     }, "deleting arrangement clip")
 
 
+def _without_none(params: Dict[str, Any]) -> Dict[str, Any]:
+    return {k: v for k, v in params.items() if v is not None}
+
+
+@mcp.tool()
+@telemetry_tool("get_clip_warp")
+def get_clip_warp(
+    ctx: Context, track_index: int, clip_index: int, location: str = "session", user_prompt: str = ""
+) -> str:
+    """
+    Read an audio clip's warp settings: warping on/off, warp mode, available
+    modes, warp markers (beat_time ↔ sample_time in seconds), pitch, gain,
+    clip length and the sample's duration.
+
+    Parameters:
+    - track_index: Index of the track
+    - clip_index: Session slot index, or Arrangement clip index as listed by
+      get_arrangement_clips
+    - location: "session" (default) or "arrangement"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("get_clip_warp", {
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+    }, "reading clip warp")
+
+
+@mcp.tool()
+@telemetry_tool("set_clip_warp")
+def set_clip_warp(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    location: str = "session",
+    warping: Union[bool, None] = None,
+    warp_mode: Union[str, None] = None,
+    original_bpm: Union[float, None] = None,
+    pitch_coarse: Union[int, None] = None,
+    pitch_fine: Union[float, None] = None,
+    gain: Union[float, None] = None,
+    user_prompt: str = "",
+) -> str:
+    """
+    Change an audio clip's warp settings. Arguments left out are untouched.
+
+    To make a loop follow the song tempo, pass its original tempo as
+    original_bpm (sample packs usually put it in the file name, e.g.
+    "..._131_..."): warping is turned on and the warp markers are rebuilt so
+    the file is read at that tempo.
+
+    Parameters:
+    - track_index: Index of the audio track
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - location: "session" (default) or "arrangement"
+    - warping: Turn warping on or off
+    - warp_mode: "beats", "tones", "texture", "re_pitch", "complex",
+      "complex_pro" (or Live's index 0–6). Beats suits drums, Complex/Complex
+      Pro full mixes, Tones monophonic parts, Re-Pitch vinyl-style speed changes.
+    - original_bpm: The loop's own tempo; conforms it to the song tempo
+    - pitch_coarse: Transpose in semitones (-48 to 48)
+    - pitch_fine: Detune in cents (-50 to 50)
+    - gain: Clip gain, normalized 0.0–1.0 (see gain_display in the reply)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_clip_warp", _without_none({
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+        "warping": warping, "warp_mode": warp_mode, "original_bpm": original_bpm,
+        "pitch_coarse": pitch_coarse, "pitch_fine": pitch_fine, "gain": gain,
+    }), "setting clip warp")
+
+
+@mcp.tool()
+@telemetry_tool("edit_warp_markers")
+def edit_warp_markers(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    location: str = "session",
+    add: Union[List[Dict[str, float]], None] = None,
+    move: Union[List[Dict[str, float]], None] = None,
+    remove: Union[List[float], None] = None,
+    user_prompt: str = "",
+) -> str:
+    """
+    Edit an audio clip's warp markers (Live 11+; warping must be on).
+    Applied in this order: remove, move, add. Use get_clip_warp to see the
+    current markers.
+
+    Parameters:
+    - track_index: Index of the audio track
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - location: "session" (default) or "arrangement"
+    - add: [{"beat_time": 8.0, "sample_time": 3.66}] — pin a point of the
+      file (seconds) to a beat; sample_time is optional (Live then uses the
+      audio currently at that beat)
+    - move: [{"beat_time": 8.0, "beat_time_distance": 0.25}] — shift the
+      marker at beat_time by that many beats
+    - remove: [8.0, 16.0] — beat times of the markers to remove
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("edit_warp_markers", _without_none({
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+        "add": add, "move": move, "remove": remove,
+    }), "editing warp markers")
+
+
+@mcp.tool()
+@telemetry_tool("set_clip_automation")
+def set_clip_automation(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    points: List[Dict[str, float]],
+    location: str = "session",
+    device_index: int = -1,
+    parameter_index: int = 0,
+    mixer_parameter: str = "",
+    interpolation: str = "linear",
+    resolution: float = 0.25,
+    clear_first: bool = True,
+    user_prompt: str = "",
+) -> str:
+    """
+    Write a clip automation envelope for one parameter (works on Session clips
+    and on clips placed in the Arrangement; the envelope plays with the clip).
+
+    Target either a device parameter (device_index + parameter_index, see
+    get_device_parameters) or a track mixer control (mixer_parameter).
+
+    Parameters:
+    - track_index: Index of the track that owns the clip and the parameter
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - points: [{"time": 0, "value": 0.2}, {"time": 16, "value": 0.9}] — time in
+      beats in clip time (0 = clip start, like MIDI note start_time), value in
+      the parameter's units (clamped to its min/max). The last point holds
+      until the clip's end. An empty list with clear_first=true removes the
+      envelope.
+    - location: "session" (default) or "arrangement"
+    - device_index: Device in the track's chain (ignored when mixer_parameter is set)
+    - parameter_index: Index into the device's parameters
+    - mixer_parameter: "volume", "panning" or "send:N" (N = return track index)
+    - interpolation: "linear" ramps between points (drawn as steps of
+      `resolution` beats), "step" holds each value until the next point
+    - resolution: Step size in beats for linear ramps (default 0.25 = a 16th)
+    - clear_first: Remove the parameter's existing envelope in this clip first
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("set_clip_automation", {
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+        "device_index": device_index, "parameter_index": parameter_index,
+        "mixer_parameter": mixer_parameter, "points": points,
+        "interpolation": interpolation, "resolution": resolution,
+        "clear_first": clear_first,
+    }, "setting clip automation")
+
+
+@mcp.tool()
+@telemetry_tool("get_clip_automation")
+def get_clip_automation(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    location: str = "session",
+    device_index: int = -1,
+    parameter_index: int = 0,
+    mixer_parameter: str = "",
+    resolution: float = 1.0,
+    user_prompt: str = "",
+) -> str:
+    """
+    Read a clip's automation envelope for one parameter, sampled every
+    `resolution` beats across the clip. Reports has_envelope=false when the
+    parameter isn't automated in this clip.
+
+    Parameters:
+    - track_index, clip_index, location: as in set_clip_automation
+    - device_index, parameter_index, mixer_parameter: as in set_clip_automation
+    - resolution: Sampling step in beats (default 1.0)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _send_with_capability("get_clip_automation", {
+        "track_index": track_index, "clip_index": clip_index, "location": location,
+        "device_index": device_index, "parameter_index": parameter_index,
+        "mixer_parameter": mixer_parameter, "resolution": resolution,
+    }, "reading clip automation")
+
+
 @mcp.tool()
 @telemetry_tool("start_playback")
 @trajectory_tool("start_playback")

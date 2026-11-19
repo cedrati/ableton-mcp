@@ -292,6 +292,8 @@ Once the config file has been set on Claude, and the remote script is running in
 - Duplicate and delete tracks *(fork)*
 - Manage scenes *(fork)*
 - Delete Arrangement clips *(fork)*
+- Warp audio clips: mode, warp markers, conform a loop to the song tempo *(fork)*
+- Clip automation envelopes for device and mixer parameters *(fork)*
 
 ### Tools added by this fork
 
@@ -311,6 +313,11 @@ Once the config file has been set on Claude, and the remote script is running in
 | `fire_scene` | Launches every clip in a scene's row. |
 | `delete_scene` | Deletes a scene and every clip in its row. Destructive. |
 | `delete_arrangement_clip` | Deletes an Arrangement clip, indexed as listed by `get_arrangement_clips` (Live 11+). |
+| `get_clip_warp` | An audio clip's warp state: on/off, mode, available modes, warp markers (beat ↔ seconds), pitch, gain, sample duration. `location`: `session` (default) or `arrangement`. |
+| `set_clip_warp` | Warping on/off, `warp_mode` (`beats`, `tones`, `texture`, `re_pitch`, `complex`, `complex_pro`), `pitch_coarse`, `pitch_fine`, `gain`. `original_bpm` conforms a loop to the song tempo by rebuilding its warp markers. |
+| `edit_warp_markers` | Removes, moves, then adds warp markers (Live 11+, warping must be on). |
+| `set_clip_automation` | Writes a clip envelope for a device parameter (`device_index` + `parameter_index`) or a mixer control (`mixer_parameter`: `volume`, `panning`, `send:N`). `points` in clip beats; `linear` ramps or `step` holds. Session and Arrangement clips. |
+| `get_clip_automation` | Samples a clip envelope every `resolution` beats. |
 
 The mixer tools reply with Live's display value (e.g. `-6.0 dB`, `25L`), so you can check what actually changed.
 
