@@ -908,11 +908,23 @@ def load_instrument_or_effect(ctx: Context, track_index: int, uri: str, user_pro
         # Check if the instrument was loaded successfully
         if result.get("loaded", False):
             new_devices = result.get("new_devices", [])
+            devices = result.get("devices_after", [])
+            if result.get("in_place"):
+                if result.get("settled"):
+                    return (f"Reloaded '{uri}' in place on track {track_index}: "
+                            f"Live kept the existing device and reset its parameters")
+                return (f"Requested reload of '{uri}' on track {track_index}. Live "
+                        f"reloads an identical device in place, and no parameter "
+                        f"changed (they may already be at their defaults). "
+                        f"Devices on track: {', '.join(devices) or 'none'}")
             if new_devices:
                 return f"Loaded instrument with URI '{uri}' on track {track_index}. New devices: {', '.join(new_devices)}"
+            elif result.get("settled") is False:
+                return (f"Requested load of '{uri}' on track {track_index}, but Live "
+                        f"had not changed the device chain yet. Devices on track: "
+                        f"{', '.join(devices) or 'none'}. Check with get_track_info.")
             else:
-                devices = result.get("devices_after", [])
-                return f"Loaded instrument with URI '{uri}' on track {track_index}. Devices on track: {', '.join(devices)}"
+                return f"Loaded instrument with URI '{uri}' on track {track_index}. Devices on track: {', '.join(devices) or 'none'}"
         else:
             return f"Failed to load instrument with URI '{uri}'"
     except Exception as e:
@@ -1483,7 +1495,11 @@ def set_arrangement_time(ctx: Context, time: float, user_prompt: str = "") -> st
     try:
         ableton = get_ableton_connection()
         result = ableton.send_command("set_current_song_time", {"time": time})
-        return f"Playhead moved to beat {result.get('current_song_time', time)}"
+        current = result.get('current_song_time', time)
+        if result.get("settled") is False:
+            return (f"Requested playhead move to beat {time}, but Live still "
+                    f"reports beat {current}")
+        return f"Playhead moved to beat {current}"
     except Exception as e:
         logger.error(f"Error setting arrangement time: {str(e)}")
         return f"Error setting arrangement time: {str(e)}"

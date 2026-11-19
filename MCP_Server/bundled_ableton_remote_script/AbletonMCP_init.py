@@ -34,7 +34,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.8.0"
+SCRIPT_VERSION = "1.8.1"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -73,6 +73,30 @@ SCRIPT_CAPABILITIES = [
     "set_scene_name",
     "delete_arrangement_clip",
 ]
+
+# Live applies some writes (song.current_song_time, browser.load_item,
+# song.set_or_delete_cue) asynchronously: reading the state back in the same
+# main-thread tick returns the *old* value. Handlers for those commands return
+# a _Deferred and finish over later ticks via schedule_message. Live's timer
+# ticks roughly every 100 ms; every budget below stays well under the 10 s
+# the socket thread waits on the response queue.
+PLAYHEAD_SETTLE_TICKS = 10
+CUE_SETTLE_TICKS = 10
+DEVICE_LOAD_SETTLE_TICKS = 50
+SAME_KIND_RELOAD_SETTLE_TICKS = 20
+TIME_TOLERANCE = 1e-3
+
+
+class _Deferred(object):
+    """A main-thread result that completes on a later tick.
+
+    ``start(resolve, reject)`` is called once on the main thread; it must
+    eventually call exactly one of the two.
+    """
+
+    def __init__(self, start):
+        self.start = start
+
 
 def create_instance(c_instance):
     """Create and return the AbletonMCP script instance"""
@@ -467,8 +491,16 @@ class AbletonMCP(ControlSurface):
                             result = self._delete_arrangement_clip(
                                 params.get("track_index", 0), params.get("clip_index", 0))
 
-                        # Put the result in the queue
-                        response_queue.put({"status": "success", "result": result})
+                        if isinstance(result, _Deferred):
+                            # Finishes on a later tick; it fills the queue itself.
+                            result.start(
+                                lambda value: response_queue.put(
+                                    {"status": "success", "result": value}),
+                                lambda message: response_queue.put(
+                                    {"status": "error", "message": message}),
+                            )
+                        else:
+                            response_queue.put({"status": "success", "result": result})
                     except Exception as e:
                         self.log_message("Error in main thread task: " + str(e))
                         self.log_message(traceback.format_exc())
@@ -1203,11 +1235,63 @@ class AbletonMCP(ControlSurface):
     def _set_current_song_time(self, time_val):
         """Move the arrangement playhead to a position in beats"""
         try:
-            self._song.current_song_time = float(time_val)
-            return {"current_song_time": self._song.current_song_time}
+            song = self._song
+            target_time = float(time_val)
+            song.current_song_time = target_time
         except Exception as e:
             self.log_message("Error setting current song time: " + str(e))
             raise
+
+        def start(resolve, reject):
+            def report(settled):
+                resolve({
+                    "current_song_time": song.current_song_time,
+                    "requested_time": target_time,
+                    "settled": settled,
+                })
+
+            self._poll_until(
+                lambda: self._playhead_at(target_time),
+                on_ready=lambda: report(True),
+                on_timeout=lambda: report(False),
+                reject=reject,
+                max_ticks=PLAYHEAD_SETTLE_TICKS,
+            )
+
+        return _Deferred(start)
+
+    def _playhead_at(self, target_time):
+        """True once Live reports the playhead at ``target_time``.
+
+        While the transport runs the playhead keeps moving, so accept anything
+        within half a beat after the target.
+        """
+        song = self._song
+        current = song.current_song_time
+        if getattr(song, "is_playing", False):
+            return target_time - TIME_TOLERANCE <= current < target_time + 0.5
+        return abs(current - target_time) < TIME_TOLERANCE
+
+    def _poll_until(self, predicate, on_ready, on_timeout, reject, max_ticks):
+        """Call ``on_ready`` once ``predicate()`` holds, checking once per tick.
+
+        Calls ``on_timeout`` after ``max_ticks`` further ticks without success.
+        Any exception raised along the way is reported through ``reject``.
+        """
+        def tick(remaining):
+            try:
+                if predicate():
+                    on_ready()
+                elif remaining <= 0:
+                    on_timeout()
+                else:
+                    self.schedule_message(1, lambda: tick(remaining - 1))
+            except Exception as e:
+                self.log_message("Error in deferred task: " + str(e))
+                self.log_message(traceback.format_exc())
+                reject(str(e))
+
+        tick(max_ticks)
 
     def _get_arrangement_clips(self, track_index):
         """Return all clips placed in the Arrangement timeline for a track.
@@ -1352,55 +1436,88 @@ class AbletonMCP(ControlSurface):
         """Create (or rename) a named locator at the given beat position.
 
         Uses Live's Song.set_or_delete_cue(), which toggles a cue at the
-        current_song_time. We temporarily move the playhead, toggle, then
-        restore. If a cue already exists at that time we just rename it
-        instead of toggling (which would delete it).
+        current_song_time. Moving the playhead is applied asynchronously, so we
+        move it, wait (over ticks) until Live reports it at the target, toggle
+        the cue, wait for it to appear, rename it, then restore the playhead.
+        If a cue already exists at that time we just rename it instead of
+        toggling (which would delete it).
         """
         try:
             song = self._song
             target_time = float(time_val)
-            tolerance = 1e-3
+            existing = self._find_cue(target_time)
 
-            # See if a cue already exists at (or near) the target time
-            existing = None
-            for cue in song.cue_points:
-                if abs(cue.time - target_time) < tolerance:
-                    existing = cue
-                    break
+            if existing is not None:
+                return self._name_cue(existing, name)
+
+            if getattr(song, "is_playing", False):
+                raise Exception(
+                    "Stop playback before creating a locator: Live places "
+                    "new cues at the moving playhead")
 
             original_time = song.current_song_time
+            song.current_song_time = target_time
+        except Exception as e:
+            self.log_message("Error creating locator: " + str(e))
+            raise
 
-            if existing is None:
-                # Move playhead, toggle to create, then locate the new cue
-                song.current_song_time = target_time
-                song.set_or_delete_cue()
-                for cue in song.cue_points:
-                    if abs(cue.time - target_time) < tolerance:
-                        existing = cue
-                        break
-                # Restore playhead
+        def start(resolve, reject):
+            def restore_playhead():
                 try:
                     song.current_song_time = original_time
                 except Exception:
                     pass
 
-            if existing is None:
-                raise Exception("Failed to create cue at time " + str(target_time))
+            def fail(message):
+                restore_playhead()
+                reject(message)
 
-            if name:
-                try:
-                    existing.name = str(name)
-                except Exception as e:
-                    self.log_message("Could not rename locator: " + str(e))
+            def finish():
+                cue = self._find_cue(target_time)
+                result = self._name_cue(cue, name)
+                restore_playhead()
+                resolve(result)
 
-            return {
-                "success": True,
-                "time": existing.time,
-                "name": existing.name,
-            }
-        except Exception as e:
-            self.log_message("Error creating locator: " + str(e))
-            raise
+            def toggle_cue():
+                song.set_or_delete_cue()
+                self._poll_until(
+                    lambda: self._find_cue(target_time) is not None,
+                    on_ready=finish,
+                    on_timeout=lambda: fail(
+                        "Live did not create a cue at beat {0}".format(target_time)),
+                    reject=fail,
+                    max_ticks=CUE_SETTLE_TICKS,
+                )
+
+            self._poll_until(
+                lambda: self._playhead_at(target_time),
+                on_ready=toggle_cue,
+                on_timeout=lambda: fail(
+                    "Playhead did not reach beat {0} (now at {1})".format(
+                        target_time, song.current_song_time)),
+                reject=fail,
+                max_ticks=PLAYHEAD_SETTLE_TICKS,
+            )
+
+        return _Deferred(start)
+
+    def _find_cue(self, target_time):
+        for cue in self._song.cue_points:
+            if abs(cue.time - target_time) < TIME_TOLERANCE:
+                return cue
+        return None
+
+    def _name_cue(self, cue, name):
+        if name:
+            try:
+                cue.name = str(name)
+            except Exception as e:
+                self.log_message("Could not rename locator: " + str(e))
+        return {
+            "success": True,
+            "time": cue.time,
+            "name": cue.name,
+        }
 
     # ── Browser implementations ───────────────────────────────────────────────
 
@@ -1521,21 +1638,75 @@ class AbletonMCP(ControlSurface):
             
             # Select the track
             self._song.view.selected_track = track
-            
-            # Load the item
+
+            devices_before = self._device_signature(track)
+            item_name = item.name
+
+            # Live inserts the device on a later tick, so the device chain is
+            # only read back once it has changed. Loading a device identical
+            # to one already on the track (Drift over Drift) is different:
+            # Live keeps the device and resets its parameters in place (~1 s
+            # later in Live 12), so the chain never changes and only the
+            # parameter values reveal that the load landed.
+            same_kind = any(name == item_name for (_, name) in devices_before)
+            params_before = self._param_fingerprint(track) if same_kind else None
+
             app.browser.load_item(item)
-            
-            result = {
-                "loaded": True,
-                "item_name": item.name,
-                "track_name": track.name,
-                "uri": item_uri
-            }
-            return result
         except Exception as e:
             self.log_message("Error loading browser item: {0}".format(str(e)))
             self.log_message(traceback.format_exc())
             raise
+
+        def chain_changed():
+            return self._device_signature(track) != devices_before
+
+        def params_reset():
+            return same_kind and self._param_fingerprint(track) != params_before
+
+        def start(resolve, reject):
+            def report(settled):
+                devices_after = self._device_signature(track)
+                in_place = same_kind and not chain_changed()
+                if in_place:
+                    new_devices = [item_name] if settled else []
+                else:
+                    new_devices = [name for (key, name) in devices_after
+                                   if (key, name) not in devices_before]
+                resolve({
+                    "loaded": True,
+                    "item_name": item_name,
+                    "track_name": track.name,
+                    "uri": item_uri,
+                    "devices_before": [name for (_, name) in devices_before],
+                    "devices_after": [name for (_, name) in devices_after],
+                    "new_devices": new_devices,
+                    "in_place": in_place,
+                    "settled": settled,
+                })
+
+            self._poll_until(
+                lambda: chain_changed() or params_reset(),
+                on_ready=lambda: report(True),
+                on_timeout=lambda: report(False),
+                reject=reject,
+                # Parameters already at their defaults give nothing to
+                # observe, so don't wait the full budget for that case.
+                max_ticks=(SAME_KIND_RELOAD_SETTLE_TICKS if same_kind
+                           else DEVICE_LOAD_SETTLE_TICKS),
+            )
+
+        return _Deferred(start)
+
+    @staticmethod
+    def _device_signature(track):
+        """(identity, name) for each device on the track, in chain order."""
+        return [((getattr(d, "_live_ptr", None), d.class_name), d.name)
+                for d in track.devices]
+
+    @staticmethod
+    def _param_fingerprint(track):
+        """Every parameter value of every device on the track."""
+        return [tuple(p.value for p in d.parameters) for d in track.devices]
     
     # Substring markers that point a URI at a likely root. Unmatched URIs fall
     # back to the default search order.
