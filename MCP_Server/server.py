@@ -1370,8 +1370,7 @@ def edit_warp_markers(
     - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
     - location: "session" (default) or "arrangement"
     - add: [{"beat_time": 8.0, "sample_time": 3.66}] — pin a point of the
-      file (seconds) to a beat; sample_time is optional (Live then uses the
-      audio currently at that beat)
+      file (sample_time, seconds) to a beat; both are required
     - move: [{"beat_time": 8.0, "beat_time_distance": 0.25}] — shift the
       marker at beat_time by that many beats
     - remove: [8.0, 16.0] — beat times of the markers to remove

@@ -99,6 +99,8 @@ WARP_MODES_BY_NAME["repitch"] = 3
 
 # Upper bound on envelope steps written or sampled in one command.
 MAX_AUTOMATION_STEPS = 4096
+# Live keeps a "shadow" warp marker this many beats after the last one.
+SHADOW_MARKER_GAP = 1.0 / 32
 # How far after a sample time get_clip_automation reads (see there).
 ENVELOPE_PROBE_OFFSET = 1e-4
 
@@ -1394,43 +1396,28 @@ class AbletonMCP(ControlSurface):
             info["notes"] = notes
         return info
 
-    def _new_warp_marker(self, beat_time, sample_time=None):
+    def _new_warp_marker(self, beat_time, sample_time):
         """Build what Clip.add_warp_marker accepts.
 
-        Live's Python API wants a Live.Clip.WarpMarker (a dict, which Max for
-        Live accepts, is refused). The constructor's argument names aren't
-        documented, so keywords are tried first, then positional arguments,
-        and the result is checked through the object's own properties so the
-        two times can't end up swapped. Outside Live (tests) a dict is used.
+        Live's Python API wants a Live.Clip.WarpMarker, whose constructor is
+        WarpMarker(sample_time, beat_time) with both required (Live 12.4.5);
+        a dict, which Max for Live accepts, is refused. The object's own
+        properties are checked so the two times can't end up swapped.
+        Outside Live (tests) a dict is used.
         """
+        if sample_time is None:
+            raise ValueError("A warp marker needs a sample_time (seconds into the file) as "
+                             "well as a beat_time: Live can't create one from a beat alone")
+        beat_time, sample_time = float(beat_time), float(sample_time)
         cls = getattr(getattr(Live, "Clip", None), "WarpMarker", None) if Live else None
         if cls is None:
-            marker = {"beat_time": float(beat_time)}
-            if sample_time is not None:
-                marker["sample_time"] = float(sample_time)
-            return marker
-        beat_time = float(beat_time)
-        if sample_time is None:
-            attempts = [lambda: cls(beat_time=beat_time), lambda: cls(beat_time)]
-        else:
-            sample_time = float(sample_time)
-            attempts = [lambda: cls(beat_time=beat_time, sample_time=sample_time),
-                        lambda: cls(beat_time, sample_time),
-                        lambda: cls(sample_time, beat_time)]
-        errors = []
-        for attempt in attempts:
-            try:
-                marker = attempt()
-            except Exception as e:
-                errors.append(str(e))
-                continue
-            ok_beat = abs(float(getattr(marker, "beat_time", beat_time)) - beat_time) < 1e-6
-            ok_sample = sample_time is None or abs(
-                float(getattr(marker, "sample_time", sample_time)) - sample_time) < 1e-6
-            if ok_beat and ok_sample:
-                return marker
-            errors.append("argument order mismatch")
-        raise RuntimeError("Could not build a Live.Clip.WarpMarker: %s" % "; ".join(errors))
+            return {"beat_time": beat_time, "sample_time": sample_time}
+        marker = cls(sample_time=sample_time, beat_time=beat_time)
+        if (abs(float(marker.beat_time) - beat_time) > 1e-6
+                or abs(float(marker.sample_time) - sample_time) > 1e-6):
+            raise RuntimeError("Live.Clip.WarpMarker swapped its times (got beat %s, sample %s)"
+                               % (marker.beat_time, marker.sample_time))
+        return marker
 
     def _plan_conform(self, clip, bpm):
         """Work out the marker that conforms the clip to bpm, without writing."""
@@ -1459,12 +1446,17 @@ class AbletonMCP(ControlSurface):
     def _apply_conform(self, clip, plan):
         """Keep the first marker, drop the others, pin the end; undo on failure.
 
-        Live keeps a hidden marker 1/32 beat after the last one and recreates
-        it by itself, so it may come back after being removed.
+        Live's shadow marker (1/32 beat after the last one) is left alone.
         """
         notes = []
         removed = []
-        for marker in reversed(plan["old_markers"][1:]):
+        to_remove = plan["old_markers"][1:]
+        # The last marker is usually Live's "shadow marker", 1/32 beat after
+        # the real last one. Live refuses to delete it and moves it itself.
+        if (len(plan["old_markers"]) >= 2 and plan["old_markers"][-1]["beat_time"]
+                - plan["old_markers"][-2]["beat_time"] <= SHADOW_MARKER_GAP + 1e-9):
+            to_remove = to_remove[:-1]
+        for marker in reversed(to_remove):
             try:
                 clip.remove_warp_marker(marker["beat_time"])
                 removed.append(marker)

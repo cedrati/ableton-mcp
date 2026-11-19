@@ -380,12 +380,12 @@ class _StrictClip(FakeClip):
 
 
 class FakeLiveWarpMarker(object):
-    """Positional only, (sample_time, beat_time): the order we must not assume."""
+    """Live 12.4.5's signature: __init__(double sample_time, double beat_time),
+    both required."""
 
-    def __init__(self, *args, **kwargs):
-        if kwargs:
-            raise TypeError("Python argument types did not match C++ signature")
-        self.sample_time, self.beat_time = args
+    def __init__(self, sample_time, beat_time):
+        self.sample_time = sample_time
+        self.beat_time = beat_time
 
 
 @pytest.fixture
@@ -415,7 +415,8 @@ def test_refused_end_marker_restores_the_removed_markers(script_module, live_api
             raise RuntimeError("Constraint violated")
         original_add(marker)
     clip.add_warp_marker = refuse_first
-    with pytest.raises(RuntimeError, match="restored 2 of 2"):
+    # The shadow marker (16.03125) isn't removed, so only the one at 16 is.
+    with pytest.raises(RuntimeError, match="restored 1 of 1"):
         inst._set_clip_warp(0, 0, original_bpm=120)
     assert [(m.beat_time, m.sample_time) for m in clip.warp_markers] == [
         (0.0, 0.0), (16.0, 8.0), (16.03125, 8.015)]
@@ -436,3 +437,28 @@ def test_arrangement_automation_is_refused_with_an_explanation(script_module):
         inst._set_clip_automation(0, 0, location="arrangement", mixer_parameter="volume",
                                   points=[{"time": 0, "value": 0.5}])
     assert arr.envelopes == {}
+
+
+def test_conform_leaves_the_shadow_marker_alone(script_module, live_api):
+    # Live 12.4.5: "The shadow marker can't be deleted."
+    clip = _StrictClip(markers=((0.0, 0.0), (15.0, 8.0), (15.03125, 8.015)))
+
+    def remove(beat_time):
+        if beat_time == 15.03125:
+            raise RuntimeError("The shadow marker can't be deleted.")
+        clip.warp_markers = [m for m in clip.warp_markers if m.beat_time != beat_time]
+    clip.remove_warp_marker = remove
+    inst, clip, _ = make(script_module, clip=clip)
+    info = inst._set_clip_warp(0, 0, original_bpm=120)
+    assert not any("kept" in n for n in info["notes"])
+    assert (16.0, 8.0) in [(m.beat_time, m.sample_time) for m in clip.warp_markers]
+
+
+def test_adding_a_marker_without_sample_time_is_refused_before_any_change(
+        script_module, live_api):
+    inst, clip, _ = make(script_module, clip=_StrictClip(
+        markers=((0.0, 0.0), (8.0, 4.0), (16.0, 8.0))))
+    clip.warping = True
+    with pytest.raises(ValueError, match="needs a sample_time"):
+        inst._edit_warp_markers(0, 0, remove=[8.0], add=[{"beat_time": 4.0}])
+    assert [m.beat_time for m in clip.warp_markers] == [0.0, 8.0, 16.0]

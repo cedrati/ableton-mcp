@@ -1,7 +1,7 @@
 # Test report — Remote Script 1.9.0 (fork `cedrati/ableton-mcp`)
 
 - **Date:** 2026-11-19
-- **Branch tested:** `feat/warp-automation` @ `45b89df` (first pass), fixes below not yet run in Live
+- **Branch tested:** `feat/warp-automation` @ `45b89df` (first pass), then `014a8e7` (second pass, §5)
 - **Environment:** Ableton Live 12.4.5 Suite, 120 BPM, 4 tracks + 2 returns (A-Reverb, …)
 - **Method:** real calls through the MCP server, running from the local clone. Test material: an audio track with `TSP_SDG_131_bass_synth_status_Amin.wav` (Splice, 131 BPM, 7.328 s) in slots 0 and 1, a MIDI track `Wavetable Test` with Wavetable and a 16-beat clip, and copies of both clips in the Arrangement at beat 0.
 
@@ -11,7 +11,7 @@
 |---|---|
 | `get_remote_script_info`: `script_version` = `expected_version` = 1.9.0, 5 new capabilities listed | ✅ |
 | First call after Live's restart | ⚠️ "Could not connect to Ableton" once, OK on retry (Live was still starting) |
-| Unit tests | ✅ 92 passed (after the fixes below) |
+| Unit tests | ✅ 94 passed (after all fixes) |
 
 ## 2. Warp
 
@@ -51,9 +51,26 @@
 2. **`get_clip_automation` read the previous step on boundaries.** Live's `value_at_time()` is left-continuous: at beat 0 it returned the parameter's value before automation (1.0 instead of 0.2), and at beat 12 the step before 0.9. Samples are now read 0.0001 beat after each time.
 3. **No clip automation on Arrangement clips.** It's a limit of Live's API, not a bug. `set_clip_automation` now refuses `location="arrangement"` up front with an explanation, and the tool description, README and CHANGELOG say Session clips only.
 
-## 5. Still to check in Live
+## 5. Second pass in Live (`014a8e7`)
 
-- [ ] `set_clip_warp(original_bpm=131)` after the fix: expected markers 0 → 0 s and 16 → 7.328 s.
-- [ ] `edit_warp_markers` with `add`.
-- [ ] `get_clip_automation` at beat 0 now returns 0.2.
-- [ ] Whether `duplicate_to_arrangement` turns a Session clip envelope into Arrangement track automation (the parameter shows `automation_state: 1`, but the Session envelope alone explains that). To check by eye in the Arrangement's automation lane.
+The set was restored by Live's restart; the test tracks were recreated, then deleted at the end (set back to 4 tracks).
+
+| Tool | Test | Result |
+|---|---|---|
+| `set_clip_warp(original_bpm=131)` | freshly imported loop | ✅ markers 0 → 0 s, 16 → 7.32824 s (131 BPM exactly) |
+| `set_clip_warp(original_bpm=131)` | after moving the end marker to beat 15 (mis-warped clip) | ✅ back to 16 → 7.32824 s |
+| `set_clip_warp(original_bpm=131, warp_mode="complex")` | clip with a middle marker at 8 | ✅ middle marker removed, mode Complex |
+| `edit_warp_markers` (`add` with `sample_time`) | beat 8 = 3.6641 s | ✅ |
+| `edit_warp_markers` (`add` without `sample_time`) | beat 4 | ❌ **finding 4**, clip left untouched ✅ |
+| `get_clip_automation` | linear 0.2 → 0.9 over 0–12 | ✅ exact: 0.2 at beat 0, 0.3167 at 2 … 0.9 at 12, held to 16 |
+| `set_clip_automation(location="arrangement")` | — | ✅ refused up front with the explanation |
+
+### Findings and fixes (not re-run in Live; covered by unit tests)
+
+4. **`Live.Clip.WarpMarker` signature** (from Live's error message): `__init__(double sample_time, double beat_time)`, **both required**. A marker can't be created from a beat alone, so `edit_warp_markers` now requires `sample_time` and refuses before touching the clip. The constructor is called with these keyword names, and the object's times are still checked.
+5. **Shadow marker.** Live keeps a marker 1/32 beat after the last one ("The shadow marker can't be deleted"). Conforming no longer tries to remove it, so its reply no longer carries that note.
+
+## 6. Still open
+
+- [ ] Whether `duplicate_to_arrangement` turns a Session clip envelope into Arrangement track automation: the API can't tell (`automation_state` is 1 either way). To check by eye in the Arrangement's automation lane.
+- [ ] Re-run §5 rows 1 and 4 after installing the final script (only the keyword call and the shadow-marker skip changed).
