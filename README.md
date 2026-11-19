@@ -294,6 +294,7 @@ Once the config file has been set on Claude, and the remote script is running in
 - Delete Arrangement clips *(fork)*
 - Warp audio clips: mode, warp markers, conform a loop to the song tempo *(fork)*
 - Clip automation envelopes for device and mixer parameters *(fork)*
+- Read and edit notes in Arrangement clips *(fork)*
 
 ### Tools added by this fork
 
@@ -318,6 +319,8 @@ Once the config file has been set on Claude, and the remote script is running in
 | `edit_warp_markers` | Removes, moves, then adds warp markers (Live 11+, warping must be on). |
 | `set_clip_automation` | Writes a clip envelope for a device parameter (`device_index` + `parameter_index`) or a mixer control (`mixer_parameter`: `volume`, `panning`, `send:N`). `points` in clip beats; `linear` ramps or `step` holds. Session clips only: Live's API refuses clip automation on Arrangement clips. |
 | `get_clip_automation` | Samples a clip envelope every `resolution` beats. |
+| `get_clip_notes` / `add_notes_to_clip` / `clear_notes_from_clip` | Take `location="arrangement"` (clip index as listed by `get_arrangement_clips`). Times are clip beats; Arrangement replies add `arrangement_start`, `arrangement_end` and `start_marker`. |
+| `remove_notes` | Removes the notes starting in a time range and a pitch range (e.g. one bar, or one drum lane), leaving the rest. Session or Arrangement. |
 
 The mixer tools reply with Live's display value (e.g. `-6.0 dB`, `25L`), so you can check what actually changed.
 

@@ -4,6 +4,21 @@ Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-m
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.10.0
+
+### Added
+
+- **Notes in Arrangement clips:** `get_clip_notes`, `add_notes_to_clip` and `clear_notes_from_clip` take `location="arrangement"`, with the clip index listed by `get_arrangement_clips`. Note times stay in clip beats; Arrangement replies add `arrangement_start`, `arrangement_end` and `start_marker` to place them in the song. Session calls are sent exactly as before.
+- **`remove_notes`:** removes the notes that start in a time range and a pitch range, leaving the others, to rewrite one bar or one drum lane without clearing the clip.
+
+### Safety
+
+- The server only sends `location="arrangement"` to a Remote Script that advertises `arrangement_notes`: an older script would ignore it and edit the Session clip in the same slot.
+
+### Fixed
+
+- `clear_notes_from_clip` also removes notes past the clip's `length` (after its end marker or loop end were moved).
+
 ## Remote Script 1.9.0
 
 ### Added

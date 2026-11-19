@@ -487,6 +487,28 @@ def get_track_info(ctx: Context, track_index: int, user_prompt: str = "") -> str
         return f"Error getting track info: {str(e)}"
 
 
+def _note_params(track_index: int, clip_index: int, location: str) -> Dict[str, Any]:
+    """Command params; location is only sent for the Arrangement, so calls
+    on Session clips stay exactly what older Remote Scripts expect."""
+    params: Dict[str, Any] = {"track_index": track_index, "clip_index": clip_index}
+    location = (location or "session").lower()
+    if location not in ("session", "arrangement"):
+        raise ValueError("location must be 'session' or 'arrangement'")
+    if location == "arrangement":
+        params["location"] = "arrangement"
+    return params
+
+
+def _arrangement_notes_missing(location: str) -> Union[str, None]:
+    """An older Remote Script would ignore location and edit the Session clip
+    instead, so refuse unless it advertises arrangement_notes."""
+    if (location or "session").lower() != "arrangement":
+        return None
+    from .script_handshake import require_capability
+
+    return require_capability("arrangement_notes")
+
+
 @mcp.tool()
 @telemetry_tool("get_clip_notes")
 @trajectory_tool("get_clip_notes")
@@ -494,28 +516,33 @@ def get_clip_notes(
     ctx: Context,
     track_index: int,
     clip_index: int,
+    location: str = "session",
     user_prompt: str = "",
 ) -> str:
     """
-    Read all MIDI notes from a Session-view clip.
+    Read all MIDI notes from a Session clip or an Arrangement clip.
 
     Returns pitch, start_time, duration, velocity, mute (and extended fields when available).
+    Note times are in clip beats (0 = clip start). For an Arrangement clip the
+    reply also gives arrangement_start / arrangement_end (song beats) and
+    start_marker: a note plays at arrangement_start + (start_time - start_marker)
+    when the clip isn't looping.
 
     Parameters:
     - track_index: Track that owns the clip
-    - clip_index: Session clip slot index
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - location: "session" (default) or "arrangement"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
         from .script_handshake import require_capability
 
-        missing = require_capability("get_clip_notes")
+        missing = require_capability("get_clip_notes") or _arrangement_notes_missing(location)
         if missing:
             return missing
         ableton = get_ableton_connection()
         result = ableton.send_command(
-            "get_clip_notes",
-            {"track_index": track_index, "clip_index": clip_index},
+            "get_clip_notes", _note_params(track_index, clip_index, location),
         )
         return json.dumps(result, indent=2)
     except Exception as e:
@@ -762,24 +789,31 @@ def add_notes_to_clip(
     track_index: int,
     clip_index: int,
     notes: List[Dict[str, Union[int, float, bool]]],
+    location: str = "session",
     user_prompt: str = ""
 ) -> str:
     """
-    Add MIDI notes to a clip.
+    Add MIDI notes to a Session clip or an Arrangement clip. Notes are added
+    to the existing ones; to replace, clear_notes_from_clip or remove_notes first.
 
     Parameters:
     - track_index: The index of the track containing the clip
-    - clip_index: The index of the clip slot containing the clip
-    - notes: List of note dictionaries, each with pitch, start_time, duration, velocity, and mute
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - notes: List of note dictionaries, each with pitch, start_time (clip
+      beats, 0 = clip start), duration, velocity, and mute
+    - location: "session" (default) or "arrangement"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
+        missing = _arrangement_notes_missing(location)
+        if missing:
+            return missing
+        params = _note_params(track_index, clip_index, location)
+        params["notes"] = notes
         ableton = get_ableton_connection()
-        result = ableton.send_command("add_notes_to_clip", {
-            "track_index": track_index,
-            "clip_index": clip_index,
-            "notes": notes
-        })
+        result = ableton.send_command("add_notes_to_clip", params)
+        if "location" in params:
+            return f"Added {len(notes)} notes to arrangement clip {clip_index} on track {track_index}"
         return f"Added {len(notes)} notes to clip at track {track_index}, slot {clip_index}"
     except Exception as e:
         logger.error(f"Error adding notes to clip: {str(e)}")
@@ -791,10 +825,11 @@ def clear_notes_from_clip(
     ctx: Context,
     track_index: int,
     clip_index: int,
+    location: str = "session",
     user_prompt: str = ""
 ) -> str:
     """
-    Remove all MIDI notes from a Session clip.
+    Remove all MIDI notes from a Session clip or an Arrangement clip.
 
     Writes are additive (add_notes_to_clip only appends), so to truly *modify*
     a clip you clear it first, then add the new notes. Use this with
@@ -802,31 +837,72 @@ def clear_notes_from_clip(
     loop: read the notes, edit the list, clear_notes_from_clip, then
     add_notes_to_clip the edited notes.
 
+    To change only part of a clip, use remove_notes instead.
+
     Parameters:
     - track_index: The index of the track containing the clip
-    - clip_index: The index of the clip slot containing the clip
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - location: "session" (default) or "arrangement"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
         from .script_handshake import require_capability
 
-        missing = require_capability("clear_notes_from_clip")
+        missing = require_capability("clear_notes_from_clip") or _arrangement_notes_missing(location)
         if missing:
             return missing
         ableton = get_ableton_connection()
-        result = ableton.send_command("clear_notes_from_clip", {
-            "track_index": track_index,
-            "clip_index": clip_index
-        })
-        return "Cleared {n} note(s) from clip '{name}' (track {t}, slot {c})".format(
+        result = ableton.send_command(
+            "clear_notes_from_clip", _note_params(track_index, clip_index, location))
+        return "Cleared {n} note(s) from clip '{name}' (track {t}, {where} {c})".format(
             n=result.get("cleared_count", "?"),
             name=result.get("clip_name", "clip"),
             t=track_index,
+            where="arrangement clip" if (location or "").lower() == "arrangement" else "slot",
             c=clip_index,
         )
     except Exception as e:
         logger.error(f"Error clearing notes from clip: {str(e)}")
         return f"Error clearing notes from clip: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("remove_notes")
+def remove_notes(
+    ctx: Context,
+    track_index: int,
+    clip_index: int,
+    from_time: float = 0.0,
+    time_span: Union[float, None] = None,
+    from_pitch: int = 0,
+    pitch_span: int = 128,
+    location: str = "session",
+    user_prompt: str = "",
+) -> str:
+    """
+    Remove the notes that start inside a time range and a pitch range, leaving
+    the others. Use it to rewrite one bar or one drum lane: remove that range,
+    then add_notes_to_clip the new notes.
+
+    Parameters:
+    - track_index: The index of the track containing the clip
+    - clip_index: Session slot index, or Arrangement clip index (get_arrangement_clips)
+    - from_time: Start of the range, in clip beats (0 = clip start)
+    - time_span: Length of the range in beats (default: to the end of the clip)
+    - from_pitch: Lowest MIDI pitch of the range (0-127, default 0)
+    - pitch_span: Number of pitches from from_pitch (default 128 = all; 1 = a single pitch)
+    - location: "session" (default) or "arrangement"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        params = _note_params(track_index, clip_index, location)
+    except ValueError as e:
+        return f"Error removing notes: {e}"
+    params.update(_without_none({
+        "from_time": from_time, "time_span": time_span,
+        "from_pitch": from_pitch, "pitch_span": pitch_span,
+    }))
+    return _send_with_capability("remove_notes", params, "removing notes")
 
 @mcp.tool()
 @rich_telemetry_tool("set_clip_name")

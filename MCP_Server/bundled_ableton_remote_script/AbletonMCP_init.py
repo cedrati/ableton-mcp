@@ -39,7 +39,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.9.0"
+SCRIPT_VERSION = "1.10.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -82,6 +82,9 @@ SCRIPT_CAPABILITIES = [
     "edit_warp_markers",
     "get_clip_automation",
     "set_clip_automation",
+    # get/add/clear notes accept location="arrangement"; remove_notes is new.
+    "arrangement_notes",
+    "remove_notes",
 ]
 
 # Live's Clip.warp_mode values.
@@ -381,7 +384,8 @@ class AbletonMCP(ControlSurface):
                                  "delete_arrangement_clip",
                                  # Warp / clip automation
                                  "set_clip_warp", "edit_warp_markers",
-                                 "set_clip_automation"]:
+                                 "set_clip_automation",
+                                 "remove_notes"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -413,11 +417,14 @@ class AbletonMCP(ControlSurface):
                             track_index = params.get("track_index", 0)
                             clip_index = params.get("clip_index", 0)
                             notes = params.get("notes", [])
-                            result = self._add_notes_to_clip(track_index, clip_index, notes)
+                            result = self._add_notes_to_clip(
+                                track_index, clip_index, notes,
+                                params.get("location", "session"))
                         elif command_type == "clear_notes_from_clip":
                             track_index = params.get("track_index", 0)
                             clip_index = params.get("clip_index", 0)
-                            result = self._clear_notes_from_clip(track_index, clip_index)
+                            result = self._clear_notes_from_clip(
+                                track_index, clip_index, params.get("location", "session"))
                         elif command_type == "set_clip_name":
                             track_index = params.get("track_index", 0)
                             clip_index = params.get("clip_index", 0)
@@ -539,6 +546,14 @@ class AbletonMCP(ControlSurface):
                                 params.get("location", "session"),
                                 add=params.get("add"), move=params.get("move"),
                                 remove=params.get("remove"))
+                        elif command_type == "remove_notes":
+                            result = self._remove_notes(
+                                params.get("track_index", 0), params.get("clip_index", 0),
+                                params.get("location", "session"),
+                                from_time=params.get("from_time", 0.0),
+                                time_span=params.get("time_span"),
+                                from_pitch=params.get("from_pitch", 0),
+                                pitch_span=params.get("pitch_span", 128))
                         elif command_type == "set_clip_automation":
                             result = self._set_clip_automation(
                                 params.get("track_index", 0), params.get("clip_index", 0),
@@ -613,7 +628,8 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_clip_notes":
                 track_index = params.get("track_index", 0)
                 clip_index = params.get("clip_index", 0)
-                response["result"] = self._get_clip_notes(track_index, clip_index)
+                response["result"] = self._get_clip_notes(
+                    track_index, clip_index, params.get("location", "session"))
             elif command_type == "get_device_parameters":
                 track_index = params.get("track_index", 0)
                 device_index = params.get("device_index", 0)
@@ -944,46 +960,43 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error creating audio clip: " + str(e))
             raise
 
-    def _add_notes_to_clip(self, track_index, clip_index, notes):
-        """Add MIDI notes to a clip"""
+    def _midi_clip(self, track_index, clip_index, location="session"):
+        clip, label = self._resolve_clip(track_index, clip_index, location)
+        if not getattr(clip, "is_midi_clip", False):
+            raise ValueError("%s is not a MIDI clip" % label.capitalize())
+        return clip, label
+
+    def _clip_location_info(self, clip, location):
+        """Where a clip sits, so its notes (in clip time) can be placed in the song."""
+        info = {"location": (location or "session").lower()}
+        if info["location"] == "arrangement":
+            info["arrangement_start"] = float(clip.start_time)
+            info["arrangement_end"] = float(clip.end_time)
+            info["start_marker"] = float(getattr(clip, "start_marker", 0.0) or 0.0)
+            info["looping"] = bool(getattr(clip, "looping", False))
+        return info
+
+    def _add_notes_to_clip(self, track_index, clip_index, notes, location="session"):
+        """Add MIDI notes to a Session or Arrangement clip (times in clip beats)."""
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self._song.tracks[track_index]
-            
-            if clip_index < 0 or clip_index >= len(track.clip_slots):
-                raise IndexError("Clip index out of range")
-            
-            clip_slot = track.clip_slots[clip_index]
-            
-            if not clip_slot.has_clip:
-                raise Exception("No clip in slot")
-            
-            clip = clip_slot.clip
-            
-            # Convert note data to Live's format
+            clip, _ = self._midi_clip(track_index, clip_index, location)
             live_notes = []
             for note in notes:
-                pitch = note.get("pitch", 60)
-                start_time = note.get("start_time", 0.0)
-                duration = note.get("duration", 0.25)
-                velocity = note.get("velocity", 100)
-                mute = note.get("mute", False)
-                
-                live_notes.append((pitch, start_time, duration, velocity, mute))
-            
-            # Add the notes
+                live_notes.append((
+                    note.get("pitch", 60),
+                    note.get("start_time", 0.0),
+                    note.get("duration", 0.25),
+                    note.get("velocity", 100),
+                    note.get("mute", False),
+                ))
             clip.set_notes(tuple(live_notes))
-            
-            result = {
-                "note_count": len(notes)
-            }
+            result = {"note_count": len(notes), "clip_name": clip.name}
+            result.update(self._clip_location_info(clip, location))
             return result
         except Exception as e:
             self.log_message("Error adding notes to clip: " + str(e))
             raise
-    
+
     def _set_clip_name(self, track_index, clip_index, name):
         """Set the name of a clip"""
         try:
@@ -1781,65 +1794,90 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error getting arrangement clips: " + str(e))
             raise
 
-    def _clear_notes_from_clip(self, track_index, clip_index):
-        """Remove all MIDI notes from a Session clip.
+    def _note_time_span(self, clip):
+        """A time range that covers every note of the clip, wherever its markers are."""
+        ends = [float(clip.length)]
+        for attr in ("end_marker", "loop_end"):
+            value = getattr(clip, attr, None)
+            if value is not None:
+                ends.append(float(value))
+        return 0.0, max(ends) + 1.0
+
+    def _count_notes(self, clip, from_pitch, pitch_span, from_time, time_span):
+        try:
+            getter = getattr(clip, "get_notes_extended", None)
+            if getter is not None:
+                return len(list(getter(from_pitch, pitch_span, from_time, time_span)))
+            return len(list(clip.get_notes(from_time, from_pitch, time_span, pitch_span)))
+        except Exception:
+            return None
+
+    def _remove_note_range(self, clip, from_pitch, pitch_span, from_time, time_span):
+        # remove_notes_extended(from_pitch, pitch_span, from_time, time_span)
+        # (Live 11+) vs the legacy remove_notes(from_time, from_pitch,
+        # time_span, pitch_span).
+        remover = getattr(clip, "remove_notes_extended", None)
+        if remover is not None:
+            remover(from_pitch, pitch_span, from_time, time_span)
+        else:
+            clip.remove_notes(from_time, from_pitch, time_span, pitch_span)
+
+    def _clear_notes_from_clip(self, track_index, clip_index, location="session"):
+        """Remove all MIDI notes from a Session or Arrangement clip.
 
         Pairs with _add_notes_to_clip to make a real replace (clear, then add),
         which the write-only API otherwise can't do. Counts notes first so the
         result can report how many were removed.
         """
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-
-            track = self._song.tracks[track_index]
-
-            if clip_index < 0 or clip_index >= len(track.clip_slots):
-                raise IndexError("Clip index out of range")
-
-            clip_slot = track.clip_slots[clip_index]
-
-            if not clip_slot.has_clip:
-                raise Exception("No clip in slot")
-
-            clip = clip_slot.clip
-
-            if not clip.is_midi_clip:
-                raise Exception("Clip is not a MIDI clip; no notes to clear")
-
-            length = clip.length
-
-            # Count existing notes for the report (best-effort; never fatal).
-            cleared = 0
-            try:
-                getter = getattr(clip, "get_notes_extended", None)
-                if getter is not None:
-                    cleared = len(list(getter(0, 128, 0.0, length)))
-                else:
-                    cleared = len(list(clip.get_notes(0.0, 0, length, 128)))
-            except Exception:
-                cleared = 0
-
-            # Remove every note across the full pitch/time range. Prefer the
-            # modern API (Live 11+); fall back to the legacy signature. Argument
-            # order mirrors the get/remove _extended family:
-            #   remove_notes_extended(from_pitch, pitch_span, from_time, time_span)
-            # vs the legacy remove_notes(from_time, from_pitch, time_span, pitch_span).
-            remover = getattr(clip, "remove_notes_extended", None)
-            if remover is not None:
-                remover(0, 128, 0.0, length)
-            else:
-                clip.remove_notes(0.0, 0, length, 128)
-
-            return {
+            clip, _ = self._midi_clip(track_index, clip_index, location)
+            from_time, time_span = self._note_time_span(clip)
+            cleared = self._count_notes(clip, 0, 128, from_time, time_span) or 0
+            self._remove_note_range(clip, 0, 128, from_time, time_span)
+            result = {
                 "track_index": track_index,
                 "clip_index": clip_index,
                 "clip_name": clip.name,
                 "cleared_count": cleared,
             }
+            result.update(self._clip_location_info(clip, location))
+            return result
         except Exception as e:
             self.log_message("Error clearing notes from clip: " + str(e))
             raise
+
+    def _remove_notes(self, track_index, clip_index, location="session", from_time=0.0,
+                      time_span=None, from_pitch=0, pitch_span=128):
+        """Remove the notes that start in a time range and pitch range.
+
+        Times are in clip beats; time_span None means to the end of the clip.
+        """
+        clip, label = self._midi_clip(track_index, clip_index, location)
+        from_time = float(from_time)
+        if time_span is None:
+            _, full_span = self._note_time_span(clip)
+            time_span = max(0.0, full_span - from_time)
+        time_span = float(time_span)
+        from_pitch, pitch_span = int(from_pitch), int(pitch_span)
+        if time_span <= 0 or pitch_span <= 0:
+            raise ValueError("time_span and pitch_span must be positive")
+        if from_pitch < 0 or from_pitch > 127:
+            raise ValueError("from_pitch must be 0-127")
+        pitch_span = min(pitch_span, 128 - from_pitch)
+        removed = self._count_notes(clip, from_pitch, pitch_span, from_time, time_span)
+        self._remove_note_range(clip, from_pitch, pitch_span, from_time, time_span)
+        result = {
+            "clip": label,
+            "clip_name": clip.name,
+            "removed_count": removed,
+            "from_time": from_time,
+            "time_span": time_span,
+            "from_pitch": from_pitch,
+            "pitch_span": pitch_span,
+            "remaining_count": self._count_notes(clip, 0, 128, *self._note_time_span(clip)),
+        }
+        result.update(self._clip_location_info(clip, location))
+        return result
 
     def _duplicate_session_clip_to_arrangement(self, track_index, clip_index, destination_time):
         """Copy a Session-view clip into the Arrangement timeline.
@@ -3006,21 +3044,11 @@ class AbletonMCP(ControlSurface):
             self.log_message("master_track serialize failed: " + str(e))
             return None
 
-    def _get_clip_notes(self, track_index, clip_index):
+    def _get_clip_notes(self, track_index, clip_index, location="session"):
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-            track = self._song.tracks[track_index]
-            if clip_index < 0 or clip_index >= len(track.clip_slots):
-                raise IndexError("Clip index out of range")
-            slot = track.clip_slots[clip_index]
-            if not slot.has_clip:
-                raise Exception("No clip in slot")
-            clip = slot.clip
-            if not getattr(clip, "is_midi_clip", False):
-                raise Exception("Clip is not a MIDI clip")
+            clip, _ = self._midi_clip(track_index, clip_index, location)
             notes = self._notes_from_clip(clip)
-            return {
+            result = {
                 "track_index": track_index,
                 "clip_index": clip_index,
                 "clip_name": clip.name,
@@ -3028,6 +3056,8 @@ class AbletonMCP(ControlSurface):
                 "note_count": len(notes),
                 "notes": notes,
             }
+            result.update(self._clip_location_info(clip, location))
+            return result
         except Exception as e:
             self.log_message("Error getting clip notes: " + str(e))
             raise
