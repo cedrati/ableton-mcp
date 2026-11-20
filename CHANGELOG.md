@@ -4,6 +4,23 @@ Changes in the extended edition by Olivier Cedrati ([cedrati/ableton-mcp](https:
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.16.0
+
+### Added
+
+- **`device_inventory`:** everything loaded in the set — every device on tracks, return tracks and the main track, rack chains — with what each one is and what it is for, plus (optionally) the installed VST/VST3/AU plug-ins by vendor.
+- **`device_knowledge`:** sheets for Live's native instruments, audio and MIDI effects and the Max for Live devices bundled with Live 12, summarised from the Live 12 manual (purpose, key parameters, electronic/techno uses, sidechain, tips), and descriptions of common plug-in families (Arturia V Collection emulations, Xfer, u-he, FabFilter, Valhalla, Plugin Alliance, Newfangled Audio, Elektron Overbridge...). It also records that Live 12's MIDI Tools (Transform/Generate) are not reachable from the API, and which server tools cover the same ground.
+- **`get_device_info`** (Remote Script): Live's real device name (`class_display_name`, also added to every device listing), kind, latency, and the device-specific API below.
+- **`set_device_sidechain`** (Remote Script): routes a Compressor's sidechain from another track and switches it on — kick-to-bass ducking without touching the interface. Live's API exposes sidechain routing on the Compressor only.
+- **`plugin_presets`** (Remote Script): a plug-in's preset list and preset selection, as far as the plug-in exposes them to Live.
+- **`simpler_sample`** (Remote Script): load a sample into Simpler, choose classic / one-shot / slicing, slice by transient, beat, region or manually, warp as N beats, crop, reverse.
+- **`rack_variation`** (Remote Script): list, recall, store rack macro variations, randomize macros.
+- **`set_drum_choke`** (Remote Script): put Drum Rack pads in a choke group (closed/open hi-hat).
+
+### Verified in Live 12
+
+Inventory of a set (Drum Rack with its 18 chains, Operator presets, return effects) and of 429 installed plug-ins from 46 vendors; a Compressor on the bass routed to the drum track (Post FX) with S/C On; closed and open hats choked together; an 85-second recording loaded into Simpler and sliced into 16 regions. Arturia Acid V (VST3) exposes a single "Default" preset and no parameters to Live until its parameters are configured in Live: plug-ins that keep presets in their own browser can't be browsed from the API.
+
 ## Server update — long-form evolution and arrangement (Remote Script unchanged, 1.15.0)
 
 ### Added
