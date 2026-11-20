@@ -310,4 +310,4 @@ The original project includes optional telemetry (anonymous tool usage) and an o
 - **Original project:** [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by [Siddharth Ahuja](https://x.com/sidahuj).
 - **Extended edition:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, clip editing, MIDI import and reliability work. Report issues about this edition on [cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp/issues).
 
-MIT License — Copyright (c) 2025 Siddharth Ahuja, Copyright (c) 2026 Olivier Cedrati (extended edition); see [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.
+MIT License — Copyright (c) 2026 Olivier Cedrati; portions Copyright (c) 2025 Siddharth Ahuja (original ableton-mcp, on which this edition is built). See [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.

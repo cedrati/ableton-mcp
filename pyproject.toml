@@ -7,8 +7,8 @@ keywords = ["ableton", "ableton-live", "mcp", "mcp-server", "model-context-proto
             "music-production", "daw", "midi", "mixing", "mastering", "lufs", "music-theory", "techno"]
 requires-python = ">=3.10"
 authors = [
-    {name = "Siddharth Ahuja", email = "ahujasid@gmail.com"},
     {name = "Olivier Cedrati"},
+    {name = "Siddharth Ahuja", email = "ahujasid@gmail.com"},
 ]
 license = {text = "MIT"}
 classifiers = [
