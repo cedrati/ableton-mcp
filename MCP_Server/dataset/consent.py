@@ -183,6 +183,20 @@ def needs_prompt() -> bool:
 _ASK_COOLDOWN_SEC = 3600
 
 
+def collection_possible() -> bool:
+    """True only when this install could actually send data: telemetry
+    credentials are configured (``MCP_Server/config.py``, not shipped in this
+    repository) and telemetry is not disabled. Without them nothing leaves the
+    machine, so asking for consent would be misleading."""
+    try:
+        from ..telemetry import get_telemetry
+
+        config = get_telemetry().config
+        return bool(getattr(config, "has_credentials", False)) and bool(getattr(config, "enabled", False))
+    except Exception:
+        return False
+
+
 def may_ask_now() -> bool:
     """True when the question is open AND we have not just asked.
 
@@ -192,7 +206,7 @@ def may_ask_now() -> bool:
     after someone closed the box is nagging, and it pressures an answer that
     should be freely given.
     """
-    if not needs_prompt():
+    if not collection_possible() or not needs_prompt():
         return False
     with _lock:
         last = _read_state().get("last_prompted_at") or 0
