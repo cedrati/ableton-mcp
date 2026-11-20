@@ -45,7 +45,7 @@ It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-studio-mcp
 | **Devices & browser** | Know every device in the set and what it does (native devices from the Live 12 manual, Max for Live, plug-in families) and every installed plug-in; route a Compressor's sidechain; plug-in presets; Simpler sample loading and slicing; rack variations; drum choke groups. Plugins (VST, VST3, AU), User Library and Packs load like built-in devices. |
 | **Reliability** | Playhead moves, locator creation and device loading reply only once Live has applied them; version handshake between server and Remote Script; capability checks so a newer server never sends a command an older script would misread. |
 
-Everything is covered by automated tests (262) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
+Everything is covered by automated tests (265) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
 
 ---
 
@@ -77,7 +77,7 @@ claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/able
   "mcpServers": {
     "AbletonMCP": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/cedrati/ableton-studio-mcp@feat/mixer-scenes", "ableton-mcp"]
+      "args": ["--from", "git+https://github.com/cedrati/ableton-studio-mcp@feat/mixer-scenes", "ableton-studio-mcp"]
     }
   }
 }
@@ -240,6 +240,7 @@ The mix report checks: integrated / short-term / momentary loudness and loudness
 - **Listening takes real time:** analysing a 3-minute song means playing it for 3 minutes.
 - **Device loading, playhead moves and locators** reply only once Live has applied them. Loading the same device that is already on a track resets it in place (the reply says so).
 - **Destructive tools** (`delete_track`, `delete_scene`, `delete_clip`, `delete_arrangement_clip`) do what they say — save your set before big experiments.
+- **Inherited dataset tools** (`set_dataset_consent`, `submit_intent`, `rate_last_action`, `prefer_candidate`, `reject_last_action`, `record_audition`) belong to the original project's research dataset and do nothing here (see [Privacy](#privacy)).
 
 ---
 
@@ -291,8 +292,8 @@ MCP client (Claude…)  ⇄  MCP server (MCP_Server/, Python)  ⇄  TCP 127.0.0.
 ```bash
 git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-studio-mcp
 cd ableton-studio-mcp
-uv run --with pytest pytest -q          # 262 tests, no Live needed
-uv run ableton-studio-mcp-install-script       # install your working copy into Live
+uv run --with pytest pytest -q             # 265 tests, no Live needed
+uv run ableton-studio-mcp-install-script   # install your working copy into Live
 ```
 
 When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`, and the package `version` in `pyproject.toml`, which follows the script), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md). GitHub Actions runs the tests on Python 3.10, 3.12 and 3.13 and checks the bundled copy on every push and pull request.
@@ -301,13 +302,13 @@ When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_S
 
 ## Privacy
 
-The original project includes optional telemetry (anonymous tool usage) and an opt-in dataset recording. Both need credentials in a `MCP_Server/config.py` file that is **not** part of this repository, so **an install from this repository sends nothing**. Details and switches (`ABLETON_MCP_DISABLE_TELEMETRY`, `ABLETON_MCP_ENABLE_DATASET`) are in [TERMS.md](TERMS.md).
+**Ableton Studio MCP sends nothing anywhere**: the server only talks to Live on your own machine (127.0.0.1). The telemetry and dataset code inherited from the original project stays inactive — it needs credentials that are not part of this repository, and the consent question is never asked without them. Details, and the files the tools may create on your machine, in [TERMS.md](TERMS.md).
 
 ---
 
 ## Credits and license
 
 - **Original project:** [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by [Siddharth Ahuja](https://x.com/sidahuj).
-- **Ableton Studio MCP:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, clip editing, MIDI import and reliability work. Report issues on [cedrati/ableton-studio-mcp](https://github.com/cedrati/ableton-studio-mcp/issues).
+- **Ableton Studio MCP:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, drums and groove, long-form evolution and arrangement, device knowledge, clip editing, MIDI import and reliability work. Report issues on [cedrati/ableton-studio-mcp](https://github.com/cedrati/ableton-studio-mcp/issues).
 
 MIT License — Copyright (c) 2026 Olivier Cedrati; portions Copyright (c) 2025 Siddharth Ahuja (original ableton-mcp, on which Ableton Studio MCP is built). See [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.

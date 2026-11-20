@@ -4,6 +4,22 @@ Changes in Ableton Studio MCP by Olivier Cedrati ([cedrati/ableton-studio-mcp](h
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-studio-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Unreleased (server only, Remote Script unchanged at 1.16.0)
+
+### Changed
+
+- **Renamed to Ableton Studio MCP** (`cedrati/ableton-studio-mcp`, standalone repository; the old URL redirects). Package `ableton-studio-mcp`; commands `ableton-studio-mcp` and `ableton-studio-mcp-install-script`, the former `ableton-mcp` / `ableton-mcp-install-script` kept as aliases.
+- **Privacy:** the dataset consent question is only asked when data could actually be sent (telemetry credentials configured and telemetry enabled). This repository ships no credentials, so nothing is collected and nobody is asked. `TERMS.md` rewritten for this project: what talks to what, the inactive inherited telemetry, the files the tools create.
+- LICENSE lists Olivier Cedrati first and keeps the original copyright for the portions that come from ableton-mcp, in the standard MIT layout.
+
+### Added
+
+- GitHub Actions CI: tests on Python 3.10, 3.12 and 3.13, and a check that the bundled Remote Script copy matches the source.
+
+### Fixed
+
+- `device_inventory` showed rack chain names as null.
+
 ## Remote Script 1.16.0
 
 ### Added
