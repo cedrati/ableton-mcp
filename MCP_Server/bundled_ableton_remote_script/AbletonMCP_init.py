@@ -39,7 +39,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.12.0"
+SCRIPT_VERSION = "1.13.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -96,6 +96,7 @@ SCRIPT_CAPABILITIES = [
     "stop_arrangement_recording",
     "get_recording_status",
     "get_audio_clip_file",
+    "get_track_meters",
 ]
 
 # Track.current_monitoring_state values.
@@ -385,6 +386,8 @@ class AbletonMCP(ControlSurface):
                     params.get("track_index", 0), params.get("track_type", "track"))
             elif command_type == "get_recording_status":
                 response["result"] = self._get_recording_status()
+            elif command_type == "get_track_meters":
+                response["result"] = self._get_track_meters()
             elif command_type == "get_audio_clip_file":
                 response["result"] = self._get_audio_clip_file(
                     params.get("track_index", 0), params.get("clip_index", 0),
@@ -3552,6 +3555,29 @@ class AbletonMCP(ControlSurface):
             "recording": dict(rec) if rec else None,
             "armed_tracks": self._armed_tracks(),
         }
+
+    def _get_track_meters(self):
+        """Output meters of every track, return track and the main track.
+
+        Values are Live's meter readings (0.0-1.0, Live's meter scale, peak
+        hold), as shown in the mixer; sample them while playing.
+        """
+        def meter(track, label, index):
+            left = self._safe_attr(track, "output_meter_left", float, None)
+            right = self._safe_attr(track, "output_meter_right", float, None)
+            level = self._safe_attr(track, "output_meter_level", float, None)
+            if level is None and left is not None and right is not None:
+                level = max(left, right)
+            return {"type": label, "index": index, "name": track.name,
+                    "left": left, "right": right, "level": level}
+
+        song = self._song
+        out = [meter(t, "track", i) for i, t in enumerate(song.tracks)]
+        out += [meter(t, "return", i) for i, t in enumerate(song.return_tracks)]
+        out.append(meter(song.master_track, "master", 0))
+        return {"current_song_time": self._safe_song_property("current_song_time", float, 0.0),
+                "is_playing": self._safe_song_property("is_playing", bool, False),
+                "meters": out}
 
     def _get_audio_clip_file(self, track_index, clip_index, location="arrangement"):
         """File behind an audio clip (e.g. a freshly recorded take)."""

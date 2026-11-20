@@ -300,6 +300,7 @@ Once the config file has been set on Claude, and the remote script is running in
 - Track routing (inputs, outputs, monitoring) *(fork)*
 - Record into the Arrangement, and "listen": resample the main output and analyze levels, clipping, loudness over time, stereo and spectral balance *(fork)*
 - Import Standard MIDI Files into clips *(fork)*
+- Mix / master report with LUFS, true peak, tonal balance, stereo and a spectrogram image *(fork)*
 
 ### Tools added by this fork
 
@@ -333,7 +334,9 @@ Once the config file has been set on Claude, and the remote script is running in
 | `record_arrangement` | Records the armed tracks into the Arrangement between two song positions, stopping at the end position; waits by default. `get_recording_status` / `stop_arrangement_recording` follow or stop it. |
 | `get_audio_clip_file` | Path of the file behind an audio clip (e.g. a fresh take), with length and sample rate. |
 | `analyze_audio_file` | Measures a WAV/AIFF file: peak/RMS (dBFS), clipping, crest factor, loudness per segment, silences, stereo correlation, low/mid/high balance, warnings. No dependency. |
-| `listen_to_arrangement` | Records the main output between two positions on a temporary resampling track (real time) and returns the analysis, so the model can check a mix. The track is deleted afterwards; the file stays in `Samples/Recorded`. |
+| `listen_to_arrangement` | Records the main output between two positions on a temporary resampling track (real time), samples every track's meter during the take, and returns the `analyze_mix` report with the spectrogram (`report="mix"`, default) or a basic level report. The track is deleted afterwards; the file stays in `Samples/Recorded`. |
+| `analyze_mix` | Mastering report on a WAV/AIFF: LUFS (BS.1770 / EBU R128: integrated, short-term, momentary, loudness range), true peak, PLR, 1/3-octave tonal balance against a -4.5 dB/oct reference, resonances, stereo per band, ranked findings with fixes for a target (`streaming`, `club`, `classical`, `broadcast`, `podcast`), and a spectrogram image. Needs `numpy`. |
+| `get_track_meters` | Live's output meters for every track, return track and the main track. |
 | `import_midi_file` | Imports a `.mid` file (format 0/1) into a Session clip (created to fit) or an Arrangement clip, with track/channel filters and transposition. Without `track_index`, describes the file. |
 
 The mixer tools reply with Live's display value (e.g. `-6.0 dB`, `25L`), so you can check what actually changed.

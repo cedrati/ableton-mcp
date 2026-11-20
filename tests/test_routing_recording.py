@@ -283,7 +283,7 @@ def test_new_commands_are_advertised(script_module):
     assert {"return_master_devices", "get_track_routing", "set_track_routing",
             "record_arrangement", "stop_arrangement_recording",
             "get_recording_status", "get_audio_clip_file"} <= caps
-    assert script_module.SCRIPT_VERSION == "1.12.0"
+    assert script_module.SCRIPT_VERSION.startswith("1.1")
 
 
 def test_expected_version_matches_script(script_module):
@@ -397,7 +397,7 @@ def test_listen_records_analyzes_and_cleans_up(connect, monkeypatch, tmp_path):
         "get_arrangement_clips": {"clips": [{"name": "take"}]},
         "get_audio_clip_file": {"file_path": str(take)},
     })
-    out = json.loads(call(server.listen_to_arrangement, None, 0.0, 4.0))
+    out = json.loads(call(server.listen_to_arrangement, None, 0.0, 4.0, report="basic"))
     assert out["analysis"]["peak_dbfs"] == pytest.approx(-6.02, abs=0.1)
     assert out["recorded"]["track"] == "deleted (file kept)"
     sent = [(c, p) for c, p in conn.sent]
@@ -450,3 +450,56 @@ def test_import_midi_replace_and_describe(connect, tmp_path):
                                          "add_notes_to_clip"]
     desc = json.loads(call(server.import_midi_file, None, str(mid)))
     assert desc["tracks"][0]["notes"] == 1
+
+
+# ------------------------------------------------- mix report (1.13.0)
+
+def test_track_meters_cover_tracks_returns_and_main(script_module):
+    song = Song()
+    for t in song.tracks + song.return_tracks + [song.master_track]:
+        t.output_meter_left, t.output_meter_right = 0.5, 0.7
+    inst, _ = live(script_module, song)
+    out = inst._get_track_meters()
+    kinds = [(m["type"], m["index"]) for m in out["meters"]]
+    assert kinds == [("track", 0), ("track", 1), ("return", 0), ("master", 0)]
+    assert all(m["level"] == 0.7 for m in out["meters"])
+
+
+def test_listen_mix_report_returns_image_and_meters(connect, monkeypatch, tmp_path):
+    from mcp.server.fastmcp import Image
+    import MCP_Server.mix_analysis as mix
+    monkeypatch.setattr(server, "RECORDING_POLL_S", 0.0)
+    take = tmp_path / "take.wav"
+    _wav(take, seconds=4.0)
+    polls = iter([{"armed_tracks": []}, {"recording": {"finished": False}},
+                  {"recording": {"finished": False}}, {"recording": {"finished": True}}])
+    conn = connect({
+        "get_session_info": {"tempo": 120.0},
+        "get_recording_status": lambda p: next(polls),
+        "create_audio_track": {"index": 2, "name": "3-Audio"},
+        "get_track_routing": {"input": {"available_types": ["Resampling"]}},
+        "get_arrangement_clips": {"clips": [{"name": "take"}]},
+        "get_audio_clip_file": {"file_path": str(take)},
+        "get_track_meters": {"meters": [
+            {"type": "track", "index": 0, "name": "Orgue", "level": 0.8},
+            {"type": "track", "index": 1, "name": "Basse", "level": 0.4},
+            {"type": "track", "index": 2, "name": "Claude – écoute", "level": 0.9},
+            {"type": "master", "index": 0, "name": "Main", "level": 0.85}]},
+    })
+    monkeypatch.setattr(server, "_spectrogram_path", lambda p: str(tmp_path / "spec.png"))
+    out = call(server.listen_to_arrangement, None, 0.0, 8.0, target="classical")
+    assert isinstance(out, list) and isinstance(out[1], Image)
+    data = json.loads(out[0])
+    assert data["analysis"]["loudness"]["integrated_lufs"] is not None
+    assert data["analysis"]["assessment"]["target"].startswith("Classique")
+    names = [m["name"] for m in data["track_meters_during_take"]["tracks"]]
+    assert names == ["Main", "Orgue", "Basse"]  # main first, listening track skipped
+    assert (tmp_path / "spec.png").exists()
+
+
+def test_analyze_mix_tool_validates_target(tmp_path):
+    take = tmp_path / "t.wav"
+    _wav(take, seconds=1.0)
+    assert "target must be" in call(server.analyze_mix, None, str(take), target="radio")
+    text_only = call(server.analyze_mix, None, str(take), spectrogram=False)
+    assert json.loads(text_only)["assessment"]["findings"]

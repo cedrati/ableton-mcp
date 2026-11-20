@@ -2324,8 +2324,10 @@ RECORDING_MARGIN_S = 5.0
 RECORDING_POLL_S = 0.5
 
 
-def _wait_for_recording(ableton, expected_s: float, max_wait_s: float) -> Dict[str, Any]:
-    """Poll get_recording_status until the watcher in Live has finished."""
+def _wait_for_recording(ableton, expected_s: float, max_wait_s: float,
+                        on_poll=None) -> Dict[str, Any]:
+    """Poll get_recording_status until the watcher in Live has finished.
+    ``on_poll`` runs at each poll while recording (e.g. to sample meters)."""
     import time
 
     deadline = time.monotonic() + min(expected_s + RECORDING_MARGIN_S, max_wait_s)
@@ -2335,6 +2337,12 @@ def _wait_for_recording(ableton, expected_s: float, max_wait_s: float) -> Dict[s
         rec = status.get("recording") or {}
         if rec.get("finished"):
             return status
+        if on_poll is not None:
+            try:
+                on_poll()
+            except Exception as e:  # metering must never break a take
+                logger.warning(f"Meter sampling failed: {e}")
+                on_poll = None
         time.sleep(RECORDING_POLL_S)
     ableton.send_command("stop_arrangement_recording")
     status = ableton.send_command("get_recording_status")
@@ -2500,6 +2508,123 @@ def _resampling_input_name(routing: Dict[str, Any]) -> Union[str, None]:
     return None
 
 
+MIX_TARGETS = ("streaming", "club", "classical", "broadcast", "podcast")
+
+
+def _spectrogram_path(audio_path: str) -> str:
+    import tempfile
+
+    folder = os.path.join(tempfile.gettempdir(), "ableton-mcp")
+    os.makedirs(folder, exist_ok=True)
+    base = os.path.splitext(os.path.basename(audio_path))[0]
+    return os.path.join(folder, base + "_spectrogram.png")
+
+
+def _mix_report(path: str, target: str, spectrogram: bool):
+    """(report dict, png path or None) from mix_analysis."""
+    from .mix_analysis import analyze_mix
+
+    png = _spectrogram_path(path) if spectrogram else None
+    return analyze_mix(path, target=target, spectrogram_path=png), png
+
+
+def _with_image(payload: Dict[str, Any], png: Union[str, None]):
+    """Tool result: the JSON report, plus the spectrogram as an image the
+    model can look at."""
+    text = json.dumps(payload, indent=2, ensure_ascii=False)
+    if png and os.path.exists(png):
+        from mcp.server.fastmcp import Image
+
+        return [text, Image(path=png)]
+    return text
+
+
+class _MeterSampler:
+    """Samples Live's track meters during a take and summarises them."""
+
+    def __init__(self, ableton, skip_track: int):
+        self.ableton, self.skip = ableton, skip_track
+        self.samples: Dict[tuple, List[float]] = {}
+
+    def __call__(self):
+        data = self.ableton.send_command("get_track_meters")
+        for m in data.get("meters", []):
+            if m["type"] == "track" and m["index"] == self.skip:
+                continue
+            level = m.get("level")
+            if level is not None:
+                self.samples.setdefault((m["type"], m["index"], m["name"]), []).append(level)
+
+    def summary(self) -> List[Dict[str, Any]]:
+        out = []
+        for (kind, index, name), vals in self.samples.items():
+            active = [v for v in vals if v > 0.01]
+            out.append({
+                "type": kind, "index": index, "name": name,
+                "peak_meter": round(max(vals), 3) if vals else None,
+                "mean_meter_when_playing": round(sum(active) / len(active), 3) if active else 0.0,
+                "active_pct": round(100.0 * len(active) / len(vals), 0) if vals else 0.0,
+            })
+        out.sort(key=lambda m: (m["type"] != "master", -m["mean_meter_when_playing"]))
+        return out
+
+
+@mcp.tool()
+@telemetry_tool("get_track_meters")
+def get_track_meters(ctx: Context, user_prompt: str = "") -> str:
+    """
+    Live's output meters right now for every track, return track and the
+    main track (0.0-1.0 on Live's meter scale, as in the mixer). Meaningful
+    while the song plays; listen_to_arrangement samples them for you.
+
+    Parameters:
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("get_track_meters")
+        if missing:
+            return missing
+        result = get_ableton_connection().send_command("get_track_meters")
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error getting track meters: {str(e)}")
+        return f"Error getting track meters: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("analyze_mix")
+def analyze_mix(ctx: Context, file_path: str, target: str = "streaming",
+                spectrogram: bool = True, user_prompt: str = ""):
+    """
+    Mastering-engineer report on a WAV/AIFF mix: loudness per ITU-R BS.1770 /
+    EBU R128 (integrated, short-term and momentary max, loudness range), true
+    peak (4x oversampled), PLR, crest factor, long-term 1/3-octave spectrum
+    with tilt and per-region deviation from a balanced -4.5 dB/oct reference
+    (mud, harshness, sibilance, air, sub), narrow resonances (with note names),
+    stereo correlation and width overall and per band (low-end mono), DC.
+    Returns findings ranked problème / attention / ok with concrete fixes
+    against the delivery target, plus a spectrogram image (log frequency,
+    with the short-term loudness curve) to look at.
+
+    Parameters:
+    - file_path: Absolute path of the audio file
+    - target: "streaming" (default, -14 LUFS), "club", "classical", "broadcast"
+      (EBU -23 LUFS) or "podcast"
+    - spectrogram: Also return the spectrogram image (default True)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        if target not in MIX_TARGETS:
+            return "target must be one of: %s" % ", ".join(MIX_TARGETS)
+        report, png = _mix_report(os.path.expanduser(file_path), target, spectrogram)
+        return _with_image(report, png)
+    except Exception as e:
+        logger.error(f"Error analyzing mix: {str(e)}")
+        return f"Error analyzing mix: {str(e)}"
+
+
 @mcp.tool()
 @rich_telemetry_tool("listen_to_arrangement")
 @trajectory_tool("listen_to_arrangement")
@@ -2507,23 +2632,34 @@ def listen_to_arrangement(
     ctx: Context,
     start_time: float,
     end_time: float,
+    target: str = "streaming",
+    report: str = "mix",
     keep_track: bool = False,
     segment_seconds: float = 1.0,
     max_wait_seconds: float = 600.0,
     user_prompt: str = "",
-) -> str:
+):
     """
-    "Listen" to the song: record the main output between two song positions
-    (beats) onto a temporary resampling audio track, then analyze the take
-    (levels, clipping, loudness over time, stereo, spectral balance).
+    "Listen" to the song like a mastering engineer: record the main output
+    between two song positions (beats) onto a temporary resampling audio
+    track, sample every track's meter during the take, then analyze it.
+
+    report="mix" (default) returns the full analyze_mix report (LUFS, true
+    peak, PLR, tonal balance, resonances, stereo, findings with fixes against
+    `target`) plus a spectrogram image, and each track's meter level during
+    the take (which tracks carry the mix). report="basic" returns only levels,
+    loudness per segment and a coarse spectral balance.
     Plays the song in real time, so it takes as long as the passage.
 
     Parameters:
     - start_time: Song position to start at (beats)
     - end_time: Song position to stop at (beats); add a few beats to hear reverb tails
+    - target: Delivery target for the mix report: "streaming", "club",
+      "classical", "broadcast" or "podcast"
+    - report: "mix" (default) or "basic"
     - keep_track: Keep the recording track in the set (default: delete it;
       the audio file stays in the project's Samples/Recorded folder)
-    - segment_seconds: Length of each loudness segment in the analysis
+    - segment_seconds: Length of each loudness segment (basic report)
     - max_wait_seconds: Safety limit for the recording
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
@@ -2533,6 +2669,10 @@ def listen_to_arrangement(
         missing = require_capability(cap)
         if missing:
             return missing
+    if report not in ("mix", "basic"):
+        return "report must be 'mix' or 'basic'"
+    if report == "mix" and target not in MIX_TARGETS:
+        return "target must be one of: %s" % ", ".join(MIX_TARGETS)
     ableton = get_ableton_connection()
     track_index = None
     armed_before = []
@@ -2561,7 +2701,10 @@ def listen_to_arrangement(
         ableton.send_command("record_arrangement",
                              {"start_time": start_time, "end_time": end_time})
         expected = (end_time - start_time) * 60.0 / tempo
-        rec_status = _wait_for_recording(ableton, expected, max_wait_seconds)
+        sampler = None
+        if report == "mix" and require_capability("get_track_meters") is None:
+            sampler = _MeterSampler(ableton, track_index)
+        rec_status = _wait_for_recording(ableton, expected, max_wait_seconds, on_poll=sampler)
         ableton.send_command("set_track_arm", {"track_index": track_index, "arm": False})
 
         clips = ableton.send_command("get_arrangement_clips",
@@ -2579,11 +2722,16 @@ def listen_to_arrangement(
         import time
 
         # Live finishes writing the file just after recording stops.
-        analysis, last_error = None, None
+        analysis, png, last_error = None, None, None
         for _ in range(10):
             try:
-                analysis = analyze_audio(path, segment_seconds=segment_seconds)
+                if report == "mix":
+                    analysis, png = _mix_report(path, target, True)
+                else:
+                    analysis = analyze_audio(path, segment_seconds=segment_seconds)
                 break
+            except ImportError:  # numpy missing: fall back to the basic report
+                report = "basic"
             except Exception as e:  # file still being finalised
                 last_error = e
                 time.sleep(0.5)
@@ -2595,13 +2743,19 @@ def listen_to_arrangement(
                          "file_path": path, "status": rec_status.get("recording")},
             "analysis": analysis,
         }
+        if sampler is not None:
+            result["track_meters_during_take"] = {
+                "scale": "Live meter scale 0.0-1.0 (as in the mixer), sampled every %.1f s"
+                         % RECORDING_POLL_S,
+                "tracks": sampler.summary(),
+            }
         if not keep_track:
             ableton.send_command("delete_track", {"track_index": track_index})
             result["recorded"]["track"] = "deleted (file kept)"
             track_index = None
         else:
             result["recorded"]["track_index"] = track_index
-        return json.dumps(result, indent=2, ensure_ascii=False)
+        return _with_image(result, png)
     except Exception as e:
         logger.error(f"Error listening to arrangement: {str(e)}")
         if track_index is not None and not keep_track:

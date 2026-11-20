@@ -4,6 +4,24 @@ Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-m
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.13.0
+
+### Added
+
+- **Mix / master report (server, numpy):** `analyze_mix` measures a WAV/AIFF like a mastering engineer: loudness per ITU-R BS.1770 / EBU R128 (integrated with both gates, short-term and momentary maxima, loudness range per EBU Tech 3342), true peak (4x windowed-sinc oversampling around the loudest samples), PLR, crest factor, long-term spectrum in 1/3-octave bands as power spectral density (FFT-analyser convention: pink noise reads -3 dB/oct), tilt against a -4.5 dB/oct reference and the deviation of each region (sub, lows, low-mids, mids, high-mids, highs, air), narrow peaks with note names, stereo correlation and side/mid overall and per band (low-end mono), DC offset. Findings are ranked problème / attention / ok with fixes using Live's own devices (EQ Eight, Utility "Bass Mono", Limiter), against a delivery target: `streaming` (-14 LUFS), `club`, `classical`, `broadcast` (EBU -23), `podcast`.
+- **Spectrogram image:** log-frequency spectrogram (20 Hz-20 kHz) with the short-term loudness curve and the target line, returned as an image the model can look at. PNG written without any imaging library.
+- **`listen_to_arrangement`** returns that report and the spectrogram by default (`report="mix"`, `target=...`), plus every track's Live meter sampled during the take, so the report says which tracks carry the mix. `report="basic"` keeps the previous output.
+- **`get_track_meters`** (Remote Script): output meters of every track, return track and the main track.
+- `numpy` is now a dependency.
+
+### Checked against reference signals
+
+A 1 kHz sine at -23 dBFS on both channels reads -23.0 LUFS at 44.1 and 48 kHz (EBU Tech 3341 case 1); two 20 s plateaus 10 dB apart give a 10 LU loudness range; a fs/4 sine sampled 3 dB under its crest reads 0 dBTP true peak; pink noise reads -3 dB/oct.
+
+### Why not Live's own meters
+
+Spectrum, EQ Eight's analyser and Max for Live meters such as Flufs only draw their readings: no value is exposed to the API (Flufs' CSV export goes through a file dialog). The analysis therefore runs on the recorded master; those devices stay useful as on-screen meters for the user.
+
 ## Remote Script 1.12.0
 
 ### Added
