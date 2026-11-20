@@ -269,7 +269,7 @@ uv run --with pytest pytest -q          # 262 tests, no Live needed
 uv run ableton-mcp-install-script       # install your working copy into Live
 ```
 
-When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md).
+When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`, and the package `version` in `pyproject.toml`, which follows the script), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md).
 
 ---
 
