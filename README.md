@@ -301,6 +301,7 @@ Once the config file has been set on Claude, and the remote script is running in
 - Record into the Arrangement, and "listen": resample the main output and analyze levels, clipping, loudness over time, stereo and spectral balance *(fork)*
 - Import Standard MIDI Files into clips *(fork)*
 - Mix / master report with LUFS, true peak, tonal balance, stereo and a spectrogram image *(fork)*
+- Music theory: scales/modes, styles, clip analysis (key, chords, roman numerals), clip transformations, progressions, Live's song scale *(fork)*
 
 ### Tools added by this fork
 
@@ -336,6 +337,11 @@ Once the config file has been set on Claude, and the remote script is running in
 | `analyze_audio_file` | Measures a WAV/AIFF file: peak/RMS (dBFS), clipping, crest factor, loudness per segment, silences, stereo correlation, low/mid/high balance, warnings. No dependency. |
 | `listen_to_arrangement` | Records the main output between two positions on a temporary resampling track (real time), samples every track's meter during the take, and returns the `analyze_mix` report with the spectrogram (`report="mix"`, default) or a basic level report. The track is deleted afterwards; the file stays in `Samples/Recorded`. |
 | `analyze_mix` | Mastering report on a WAV/AIFF: LUFS (BS.1770 / EBU R128: integrated, short-term, momentary, loudness range), true peak, PLR, 1/3-octave tonal balance against a -4.5 dB/oct reference, resonances, stereo per band, ranked findings with fixes for a target (`streaming`, `club`, `classical`, `broadcast`, `podcast`), and a spectrogram image. Needs `numpy`. |
+| `music_scales` / `music_styles` / `music_chord_ideas` | Knowledge base: ~50 scales and modes (character, characteristic note, styles, diatonic chords with roman numerals, relative modes), 24 style sheets (harmony, progressions, groove, swing, bass, melody, arrangement, Live devices), reharmonisation ideas. |
+| `analyze_clip_music` | Key/mode, chords with roman numerals (`basic` or `jazz` vocabulary), out-of-scale notes, range, rhythm and melodic motion of a MIDI clip. |
+| `transform_clip` | Chain of operations on a clip, in place or into an empty slot: transpose (chromatic/diatonic), change mode, snap to scale, invert, retrograde, time scale, quantize, swing, humanize, accent, articulation, range folding, diatonic harmonization, arpeggiate, strum, chord voicings. |
+| `write_progression` | Roman numerals or a style's progression, voice-led and rendered with an accompaniment pattern and a bass line. |
+| `get_song_scale` / `set_song_scale` | Live 12's song scale and Scale Mode. |
 | `get_track_meters` | Live's output meters for every track, return track and the main track. |
 | `import_midi_file` | Imports a `.mid` file (format 0/1) into a Session clip (created to fit) or an Arrangement clip, with track/channel filters and transposition. Without `track_index`, describes the file. |
 

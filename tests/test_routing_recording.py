@@ -503,3 +503,56 @@ def test_analyze_mix_tool_validates_target(tmp_path):
     assert "target must be" in call(server.analyze_mix, None, str(take), target="radio")
     text_only = call(server.analyze_mix, None, str(take), spectrogram=False)
     assert json.loads(text_only)["assessment"]["findings"]
+
+
+# ------------------------------------------- song scale, parameter display (1.14.0)
+
+class ScaleSong(Song):
+    LIVE_SCALES = ["Major", "Minor", "Dorian", "Phrygian Dominant"]
+
+    def __init__(self):
+        Song.__init__(self)
+        self.root_note, self._scale, self.scale_mode = 0, "Major", False
+
+    @property
+    def scale_name(self):
+        return self._scale
+
+    @scale_name.setter
+    def scale_name(self, v):
+        if v in self.LIVE_SCALES:  # Live ignores unknown names
+            self._scale = v
+
+    @property
+    def scale_intervals(self):
+        return {"Major": [0, 2, 4, 5, 7, 9, 11], "Phrygian Dominant": [0, 1, 4, 5, 7, 8, 10]}.get(self._scale, [])
+
+
+def test_song_scale_get_and_set(script_module):
+    song = ScaleSong()
+    inst, _ = live(script_module, song)
+    out = inst._set_song_scale(root_note="Eb", scale_name="Phrygian Dominant", scale_mode=True)
+    assert (out["root_note"], out["root_name"], out["scale_name"], out["scale_mode"]) == (3, "D#", "Phrygian Dominant", True)
+    with pytest.raises(ValueError, match="did not accept"):
+        inst._set_song_scale(scale_name="Hijaz")
+    with pytest.raises(ValueError):
+        inst._set_song_scale(root_note="H")
+
+
+class DisplayParam(Param):
+    value_items = ["Low Cut 48", "Low Cut 12", "Low Shelf", "Bell", "Notch", "High Shelf", "High Cut 12", "High Cut 48"]
+
+    def str_for_value(self, v):
+        return self.value_items[int(v)]
+
+
+def test_parameter_display_and_items(script_module):
+    song = Song()
+    dev = Device("EQ Eight")
+    dev.parameters = [DisplayParam("1 Filter Type A", 3)]
+    song.tracks[0].devices = [dev]
+    inst, _ = live(script_module, song)
+    p = inst._get_device_parameters(0, 0)["device"]["parameters"][0]
+    assert p["display"] == "Bell" and p["value_items"][5] == "High Shelf"
+    r = inst._set_device_parameter(0, 0, 0, 5)
+    assert (r["old_display"], r["display"]) == ("Bell", "High Shelf")

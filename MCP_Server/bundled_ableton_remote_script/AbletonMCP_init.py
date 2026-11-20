@@ -39,7 +39,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.13.0"
+SCRIPT_VERSION = "1.14.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -97,7 +97,13 @@ SCRIPT_CAPABILITIES = [
     "get_recording_status",
     "get_audio_clip_file",
     "get_track_meters",
+    # device parameters report "display" and "value_items"
+    "parameter_display",
+    "get_song_scale",
+    "set_song_scale",
 ]
+
+NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 # Track.current_monitoring_state values.
 MONITORING_STATES = {0: "in", 1: "auto", 2: "off"}
@@ -388,6 +394,8 @@ class AbletonMCP(ControlSurface):
                 response["result"] = self._get_recording_status()
             elif command_type == "get_track_meters":
                 response["result"] = self._get_track_meters()
+            elif command_type == "get_song_scale":
+                response["result"] = self._get_song_scale()
             elif command_type == "get_audio_clip_file":
                 response["result"] = self._get_audio_clip_file(
                     params.get("track_index", 0), params.get("clip_index", 0),
@@ -421,7 +429,7 @@ class AbletonMCP(ControlSurface):
                                  "remove_notes", "set_clip_loop",
                                  # Routing / recording
                                  "set_track_routing", "record_arrangement",
-                                 "stop_arrangement_recording"]:
+                                 "stop_arrangement_recording", "set_song_scale"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -628,6 +636,11 @@ class AbletonMCP(ControlSurface):
                                 params.get("end_time"))
                         elif command_type == "stop_arrangement_recording":
                             result = self._stop_arrangement_recording()
+                        elif command_type == "set_song_scale":
+                            result = self._set_song_scale(
+                                root_note=params.get("root_note"),
+                                scale_name=params.get("scale_name"),
+                                scale_mode=params.get("scale_mode"))
 
                         if isinstance(result, _Deferred):
                             # Finishes on a later tick; it fills the queue itself.
@@ -2911,6 +2924,18 @@ class AbletonMCP(ControlSurface):
         except Exception:
             return default
 
+    @staticmethod
+    def _param_display(param, value=None):
+        """Live's display string for a parameter value, or None."""
+        try:
+            v = param.value if value is None else value
+            return str(param.str_for_value(v))
+        except Exception:
+            try:
+                return str(param)
+            except Exception:
+                return None
+
     def _notes_from_clip(self, clip):
         """Extract MIDI notes from a clip (incl. MPE/expression when available)."""
         notes = []
@@ -3034,6 +3059,14 @@ class AbletonMCP(ControlSurface):
                         }
                         if hasattr(param, "value_string"):
                             entry["value_string"] = str(param.value_string)
+                        # What Live shows ("Bell", "1.56 kHz", "-6.0 dB"):
+                        # normalised 0-1 values mean nothing without it.
+                        display = self._param_display(param)
+                        if display is not None:
+                            entry["display"] = display
+                        items = self._safe_attr(param, "value_items", list, None)
+                        if items:
+                            entry["value_items"] = [str(i) for i in items]
                         if hasattr(param, "automation_state"):
                             try:
                                 entry["automation_state"] = int(param.automation_state)
@@ -3362,6 +3395,7 @@ class AbletonMCP(ControlSurface):
                 raise IndexError("Parameter index out of range")
             param = device.parameters[parameter_index]
             old = float(param.value)
+            old_display = self._param_display(param)
             param.value = float(value)
             return {
                 "track_index": track_index,
@@ -3372,6 +3406,8 @@ class AbletonMCP(ControlSurface):
                 "value": float(param.value),
                 "min": float(param.min),
                 "max": float(param.max),
+                "old_display": old_display,
+                "display": self._param_display(param),
             }
         except Exception as e:
             self.log_message("Error setting device parameter: " + str(e))
@@ -3555,6 +3591,47 @@ class AbletonMCP(ControlSurface):
             "recording": dict(rec) if rec else None,
             "armed_tracks": self._armed_tracks(),
         }
+
+    # --------------------------------------------------------- song scale
+    def _get_song_scale(self):
+        """Live 12's song scale (root, name, intervals, Scale Mode switch)."""
+        song = self._song
+        if not hasattr(song, "scale_name"):
+            raise RuntimeError("This Live version has no song scale (Live 12+)")
+        root = self._safe_song_property("root_note", int, None)
+        return {
+            "root_note": root,
+            "root_name": NOTE_NAMES_SHARP[root % 12] if root is not None else None,
+            "scale_name": self._safe_song_property("scale_name", str, None),
+            "scale_intervals": self._safe_attr(song, "scale_intervals", list, None),
+            "scale_mode": self._safe_song_property("scale_mode", bool, None),
+        }
+
+    def _set_song_scale(self, root_note=None, scale_name=None, scale_mode=None):
+        """Set the song's root (0-11 or a name such as "Eb"), scale name (one
+        of Live's, e.g. "Dorian", "Harmonic Minor") and Scale Mode switch."""
+        song = self._song
+        if not hasattr(song, "scale_name"):
+            raise RuntimeError("This Live version has no song scale (Live 12+)")
+        if root_note is not None:
+            if isinstance(root_note, str):
+                flats = {"Db": 1, "Eb": 3, "Gb": 6, "Ab": 8, "Bb": 10, "Cb": 11, "Fb": 4}
+                key = root_note.strip()[:1].upper() + root_note.strip()[1:]
+                if key in flats:
+                    root_note = flats[key]
+                elif key in NOTE_NAMES_SHARP:
+                    root_note = NOTE_NAMES_SHARP.index(key)
+                else:
+                    raise ValueError("Unknown root note '%s'" % root_note)
+            song.root_note = int(root_note) % 12
+        if scale_name is not None:
+            song.scale_name = str(scale_name)
+            if str(song.scale_name).lower() != str(scale_name).lower():
+                raise ValueError("Live did not accept scale '%s' (now '%s')"
+                                 % (scale_name, song.scale_name))
+        if scale_mode is not None:
+            song.scale_mode = bool(scale_mode)
+        return self._get_song_scale()
 
     def _get_track_meters(self):
         """Output meters of every track, return track and the main track.
