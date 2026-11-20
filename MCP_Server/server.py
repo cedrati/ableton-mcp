@@ -3814,7 +3814,7 @@ def device_inventory(ctx: Context, installed_plugins: bool = False, user_prompt:
                         dp = dict(params, device_index=d["index"])
                         full = ableton.send_command("get_device_parameters", dp).get("device", {})
                         chains = full.get("chains") or []
-                        card["chains"] = [{"name": c.get("name"),
+                        card["chains"] = [{"name": c.get("chain_name") or c.get("name"),
                                            "devices": [x.get("name") for x in c.get("devices", [])]}
                                           for c in chains][:32]
                     except Exception:

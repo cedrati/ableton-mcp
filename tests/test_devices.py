@@ -219,16 +219,19 @@ def conn(monkeypatch):
 def test_device_inventory(conn):
     tracks = {("track", 0): {"name": "Bass", "devices": [
         {"index": 0, "name": "Acid V", "class_name": "PluginDevice", "class_display_name": "Acid V"},
-        {"index": 1, "name": "Compressor", "class_name": "Compressor", "class_display_name": "Compressor"}]},
+        {"index": 1, "name": "Compressor", "class_name": "Compressor", "class_display_name": "Compressor"},
+        {"index": 2, "name": "Kit", "class_name": "DrumGroupDevice", "class_display_name": "Drum Rack"}]},
         ("master", 0): {"name": "Main", "devices": [
             {"index": 0, "name": "Limiter", "class_name": "Limiter", "class_display_name": "Limiter"}]}}
     conn({"get_session_info": {"track_count": 1, "return_track_count": 0},
+          "get_device_parameters": {"device": {"chains": [{"chain_name": "Kick", "devices": [{"name": "Simpler"}]}]}},
           "get_track_info": lambda p: tracks[(p.get("track_type", "track"), p["track_index"])],
           "get_browser_items_at_path": lambda p: {"items": [{"name": "Arturia", "is_folder": True}]}
           if p["path"].count("/") == 1 else {"items": [{"name": "Acid V"}, {"name": "Comp FET-76"}]}})
     out = json.loads(call(server.device_inventory, None, installed_plugins=True))
     bass = out["tracks"][0]["devices"]
     assert "303" in bass[0]["what"] and bass[1]["sidechain"] is True
+    assert bass[2]["chains"] == [{"name": "Kick", "devices": ["Simpler"]}]
     assert out["tracks"][1]["type"] == "master" and out["tracks"][1]["devices"][0]["device"] == "Limiter"
     assert out["installed_plugins"]["Arturia"] == ["Acid V", "Comp FET-76"]
 
