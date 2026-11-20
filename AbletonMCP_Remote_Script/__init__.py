@@ -9,6 +9,11 @@ import threading
 import time
 import traceback
 
+try:  # Live 11+: notes with probability / velocity deviation / release velocity
+    from Live.Clip import MidiNoteSpecification
+except Exception:  # outside Live (tests) or older Live
+    MidiNoteSpecification = None
+
 # Change queue import for Python 2
 try:
     import Queue as queue  # Python 2
@@ -39,7 +44,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.14.0"
+SCRIPT_VERSION = "1.15.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -101,6 +106,12 @@ SCRIPT_CAPABILITIES = [
     "parameter_display",
     "get_song_scale",
     "set_song_scale",
+    # add_notes_to_clip keeps probability, velocity_deviation, release_velocity
+    "note_probability",
+    "get_drum_rack_map",
+    "get_groove_pool",
+    "set_clip_groove",
+    "set_groove_params",
 ]
 
 NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -396,6 +407,10 @@ class AbletonMCP(ControlSurface):
                 response["result"] = self._get_track_meters()
             elif command_type == "get_song_scale":
                 response["result"] = self._get_song_scale()
+            elif command_type == "get_drum_rack_map":
+                response["result"] = self._get_drum_rack_map(params.get("track_index", 0))
+            elif command_type == "get_groove_pool":
+                response["result"] = self._get_groove_pool()
             elif command_type == "get_audio_clip_file":
                 response["result"] = self._get_audio_clip_file(
                     params.get("track_index", 0), params.get("clip_index", 0),
@@ -429,7 +444,8 @@ class AbletonMCP(ControlSurface):
                                  "remove_notes", "set_clip_loop",
                                  # Routing / recording
                                  "set_track_routing", "record_arrangement",
-                                 "stop_arrangement_recording", "set_song_scale"]:
+                                 "stop_arrangement_recording", "set_song_scale",
+                                 "set_clip_groove", "set_groove_params"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -636,6 +652,14 @@ class AbletonMCP(ControlSurface):
                                 params.get("end_time"))
                         elif command_type == "stop_arrangement_recording":
                             result = self._stop_arrangement_recording()
+                        elif command_type == "set_clip_groove":
+                            result = self._set_clip_groove(
+                                params.get("track_index", 0), params.get("clip_index", 0),
+                                params.get("groove_index"), params.get("location", "session"))
+                        elif command_type == "set_groove_params":
+                            result = self._set_groove_params(
+                                params.get("groove_index"), params.get("values") or {},
+                                params.get("global_amount"))
                         elif command_type == "set_song_scale":
                             result = self._set_song_scale(
                                 root_note=params.get("root_note"),
@@ -1061,16 +1085,34 @@ class AbletonMCP(ControlSurface):
         """Add MIDI notes to a Session or Arrangement clip (times in clip beats)."""
         try:
             clip, _ = self._midi_clip(track_index, clip_index, location)
-            live_notes = []
-            for note in notes:
-                live_notes.append((
-                    note.get("pitch", 60),
-                    note.get("start_time", 0.0),
-                    note.get("duration", 0.25),
-                    note.get("velocity", 100),
-                    note.get("mute", False),
-                ))
-            clip.set_notes(tuple(live_notes))
+            extended = any(k in note for note in notes
+                           for k in ("probability", "velocity_deviation", "release_velocity"))
+            if extended and MidiNoteSpecification is not None and hasattr(clip, "add_new_notes"):
+                specs = []
+                for note in notes:
+                    kwargs = {
+                        "pitch": int(note.get("pitch", 60)),
+                        "start_time": float(note.get("start_time", 0.0)),
+                        "duration": float(note.get("duration", 0.25)),
+                        "velocity": float(note.get("velocity", 100)),
+                        "mute": bool(note.get("mute", False)),
+                    }
+                    for k in ("probability", "velocity_deviation", "release_velocity"):
+                        if k in note:
+                            kwargs[k] = float(note[k])
+                    specs.append(MidiNoteSpecification(**kwargs))
+                clip.add_new_notes(tuple(specs))
+            else:
+                live_notes = []
+                for note in notes:
+                    live_notes.append((
+                        note.get("pitch", 60),
+                        note.get("start_time", 0.0),
+                        note.get("duration", 0.25),
+                        note.get("velocity", 100),
+                        note.get("mute", False),
+                    ))
+                clip.set_notes(tuple(live_notes))
             result = {"note_count": len(notes), "clip_name": clip.name}
             result.update(self._clip_location_info(clip, location))
             return result
@@ -3591,6 +3633,95 @@ class AbletonMCP(ControlSurface):
             "recording": dict(rec) if rec else None,
             "armed_tracks": self._armed_tracks(),
         }
+
+    # -------------------------------------------------------------- drums
+    def _find_drum_rack(self, devices, depth=0):
+        for i, d in enumerate(devices):
+            if getattr(d, "can_have_drum_pads", False):
+                return d, i
+            if depth < 2 and getattr(d, "can_have_chains", False):
+                for chain in getattr(d, "chains", []):
+                    found = self._find_drum_rack(getattr(chain, "devices", []), depth + 1)
+                    if found[0] is not None:
+                        return found[0], i
+        return None, None
+
+    def _get_drum_rack_map(self, track_index):
+        """Filled pads of the track's Drum Rack: note, name, what they hold."""
+        track, label = self._resolve_track(track_index, "track")
+        rack, index = self._find_drum_rack(list(track.devices))
+        if rack is None:
+            raise ValueError("No Drum Rack on %s" % label)
+        pads = []
+        for pad in rack.drum_pads:
+            chains = list(getattr(pad, "chains", []) or [])
+            if not chains:
+                continue
+            devices = []
+            for chain in chains:
+                devices += [dv.name for dv in getattr(chain, "devices", [])]
+            pads.append({
+                "note": int(pad.note),
+                "name": str(pad.name),
+                "devices": devices,
+                "mute": self._safe_attr(pad, "mute", bool, False),
+                "solo": self._safe_attr(pad, "solo", bool, False),
+            })
+        return {"track": label, "device_index": index, "rack_name": rack.name, "pads": pads}
+
+    # ------------------------------------------------------------- grooves
+    def _groove_pool(self):
+        pool = getattr(self._song, "groove_pool", None)
+        if pool is None:
+            raise RuntimeError("This Live version has no Groove Pool API (Live 11+)")
+        return pool
+
+    @staticmethod
+    def _groove_info(i, g):
+        out = {"index": i, "name": str(getattr(g, "name", ""))}
+        for k in ("base", "quantization_amount", "timing_amount", "random_amount", "velocity_amount"):
+            try:
+                out[k] = float(getattr(g, k))
+            except Exception:
+                pass
+        return out
+
+    def _get_groove_pool(self):
+        pool = self._groove_pool()
+        grooves = list(getattr(pool, "grooves", []))
+        return {"global_amount": self._safe_song_property("groove_amount", float, None),
+                "grooves": [self._groove_info(i, g) for i, g in enumerate(grooves)]}
+
+    def _set_clip_groove(self, track_index, clip_index, groove_index, location="session"):
+        """Apply a Groove Pool groove to a clip (None removes it)."""
+        clip, label = self._resolve_clip(track_index, clip_index, location)
+        if groove_index is None:
+            clip.groove = None
+            return {"clip": label, "groove": None}
+        grooves = list(self._groove_pool().grooves)
+        if groove_index < 0 or groove_index >= len(grooves):
+            raise IndexError("Groove index out of range (%d grooves in the pool)" % len(grooves))
+        clip.groove = grooves[groove_index]
+        return {"clip": label, "groove": self._groove_info(groove_index, grooves[groove_index])}
+
+    def _set_groove_params(self, groove_index=None, values=None, global_amount=None):
+        """Change a groove's amounts (timing/random/velocity/quantization in
+        0-100 %, base as Live's index) and/or the global Groove amount (0-1.3)."""
+        out = {}
+        if groove_index is not None:
+            grooves = list(self._groove_pool().grooves)
+            if groove_index < 0 or groove_index >= len(grooves):
+                raise IndexError("Groove index out of range (%d grooves in the pool)" % len(grooves))
+            g = grooves[groove_index]
+            for k, v in (values or {}).items():
+                if k not in ("base", "quantization_amount", "timing_amount", "random_amount", "velocity_amount"):
+                    raise ValueError("Unknown groove setting '%s'" % k)
+                setattr(g, k, v)
+            out["groove"] = self._groove_info(groove_index, g)
+        if global_amount is not None:
+            self._song.groove_amount = float(global_amount)
+            out["global_amount"] = float(self._song.groove_amount)
+        return out
 
     # --------------------------------------------------------- song scale
     def _get_song_scale(self):
