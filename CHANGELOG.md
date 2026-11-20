@@ -1,8 +1,100 @@
 # Changelog
 
-Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp), branch `feat/mixer-scenes`) relative to the upstream [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp).
+Changes in the extended edition by Olivier Cedrati ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp), branch `feat/mixer-scenes`) relative to the original [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp).
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
+
+## Remote Script 1.14.0
+
+### Added
+
+- **Music theory knowledge (server):** `music_scales` lists ~50 scales and modes (church modes, harmonic/melodic minor and their modes, harmonic major, double harmonic, pentatonics, blues, bebop, symmetric, Japanese, gamelan, flamenco) with character, characteristic note and typical styles, or details one in a key: spelled notes, degrees, diatonic seventh chords with roman numerals and functions, relative modes, Live's scale name. `music_styles` gives a style sheet for 24 styles (baroque to synthwave): tempo, metre, scales, harmonic language, progressions, groove and swing, bass, melody, arrangement, accompaniment patterns, Live devices. `music_chord_ideas` suggests reharmonisations (tritone substitution, ii-V, relatives, borrowed chords).
+- **`analyze_clip_music`:** key/mode detection (Krumhansl-Kessler profiles refined by scale coverage, tonic weight and harmony: a V7 points to its tonic, a final dominant is a half cadence; long held notes are capped so a Picardy third doesn't turn a minor piece major), chords per segment with roman numerals in a `basic` (triads and sevenths, for classical/pop/counterpoint) or `jazz` vocabulary, out-of-scale notes, range, rhythm and top-line motion.
+- **`transform_clip`:** chains operations on a clip, in place or into an empty slot: transpose (chromatic or diatonic), change_mode, snap_to_scale, invert (chromatic or diatonic), retrograde, time_scale, quantize, swing, humanize, accent, articulate, fold_range, harmonize (diatonic parallel voices), arpeggiate, strum, voice_chords (close, drop 2, open, spread).
+- **`write_progression`:** roman numerals (secondary dominants, borrowed chords, Neapolitan) or a style's progression, voiced with smooth voice leading and played with an accompaniment pattern (block, pulse, offbeat, arpeggios, Alberti bass, bossa, waltz, ballad, stabs), with a bass line.
+- **Live's song scale (Remote Script):** `get_song_scale` / `set_song_scale` (root, scale, Scale Mode), mapping this server's scale names to Live's.
+- **Parameter display (Remote Script):** `get_device_parameters` and `set_device_parameter` report Live's display string ("Bell", "1.56 kHz", "-6.0 dB") and, for list parameters, their value names, instead of bare normalised numbers.
+
+### Verified in Live 12
+
+Song scale set to C harmonic minor; a fugue analysed as C minor with its circle-of-fifths episode (iv-bVII-bIII-bVI) and V7-I ending; a jazz progression written in Bb (Imaj7-vi7-ii7-V7), re-voiced in drop 2, arpeggiated, swung into another slot and analysed back; EQ Eight filter types read as named values.
+
+## Remote Script 1.13.0
+
+### Added
+
+- **Mix / master report (server, numpy):** `analyze_mix` measures a WAV/AIFF like a mastering engineer: loudness per ITU-R BS.1770 / EBU R128 (integrated with both gates, short-term and momentary maxima, loudness range per EBU Tech 3342), true peak (4x windowed-sinc oversampling around the loudest samples), PLR, crest factor, long-term spectrum in 1/3-octave bands as power spectral density (FFT-analyser convention: pink noise reads -3 dB/oct), tilt against a -4.5 dB/oct reference and the deviation of each region (sub, lows, low-mids, mids, high-mids, highs, air), narrow peaks with note names, stereo correlation and side/mid overall and per band (low-end mono), DC offset. Findings are ranked problème / attention / ok with fixes using Live's own devices (EQ Eight, Utility "Bass Mono", Limiter), against a delivery target: `streaming` (-14 LUFS), `club`, `classical`, `broadcast` (EBU -23), `podcast`.
+- **Spectrogram image:** log-frequency spectrogram (20 Hz-20 kHz) with the short-term loudness curve and the target line, returned as an image the model can look at. PNG written without any imaging library.
+- **`listen_to_arrangement`** returns that report and the spectrogram by default (`report="mix"`, `target=...`), plus every track's Live meter sampled during the take, so the report says which tracks carry the mix. `report="basic"` keeps the previous output.
+- **`get_track_meters`** (Remote Script): output meters of every track, return track and the main track.
+- `numpy` is now a dependency.
+
+### Checked against reference signals
+
+A 1 kHz sine at -23 dBFS on both channels reads -23.0 LUFS at 44.1 and 48 kHz (EBU Tech 3341 case 1); two 20 s plateaus 10 dB apart give a 10 LU loudness range; a fs/4 sine sampled 3 dB under its crest reads 0 dBTP true peak; pink noise reads -3 dB/oct.
+
+### Why not Live's own meters
+
+Spectrum, EQ Eight's analyser and Max for Live meters such as Flufs only draw their readings: no value is exposed to the API (Flufs' CSV export goes through a file dialog). The analysis therefore runs on the recorded master; those devices stay useful as on-screen meters for the user.
+
+## Remote Script 1.12.0
+
+### Added
+
+- **Return and main tracks:** `load_instrument_or_effect`, `get_track_info`, `get_device_parameters` and `set_device_parameter` take `track_type` (`track`, `return`, `master`): one shared reverb on a return track, a limiter on the main track. The server only sends `track_type` to a script that advertises `return_master_devices`; an older one would act on the regular track with the same index.
+- **Routing:** `get_track_routing` / `set_track_routing` read and set input/output routing type and channel and monitoring, matching the names Live shows (exact, else a unique substring). Types are written before channels, since the channels depend on the type. Return and main tracks only have an output.
+- **Arrangement recording:** `record_arrangement` moves the playhead, turns Arrangement Record on, plays, and a watcher stops at the end position (or when playback is stopped by hand). `get_recording_status`, `stop_arrangement_recording`. `get_audio_clip_file` gives the file behind an audio clip.
+- **Listening (server):** `listen_to_arrangement` records the main output on a temporary resampling track (finds the input by its localized name, e.g. "Rééchantillonnage"), disarms other tracks for the take, analyzes the file and deletes the track. `analyze_audio_file` measures any WAV/AIFF (PCM 8–32 bit, float 32/64): levels, clipping, loudness over time, silences, stereo correlation, low/mid/high balance.
+- **MIDI files (server):** `import_midi_file` reads format 0/1 Standard MIDI Files without a dependency and imports them into a Session clip (created to fit, rounded to a bar) or an Arrangement clip, with track/channel filters and transposition. Notes on the same pitch and start in two voices are merged, as Live keeps one.
+- Docs: plugins (VST/AU), User Library, Packs and the other browser roots were already reachable by path and URI; the tool descriptions now say so.
+
+### Not possible from a Remote Script
+
+Saving the set, exporting audio, creating group tracks and writing Arrangement (song) automation such as tempo are not exposed by Live's API. `listen_to_arrangement` stands in for an export when the goal is to check the result.
+
+### Verified in Live 12
+
+Loaded a convolution reverb on a return track and a limiter on the main track, set their parameters, browsed `plugins` and `user_library`, routed a MIDI track's input from another MIDI track (monitoring In) and back, imported a two-voice invention (458 notes sent, 457 kept by Live: two voices share one note, which led to the duplicate merge), and listened to an 85-second passage end to end (temporary track created, recorded, analyzed, deleted).
+
+## Remote Script 1.11.0
+
+### Added
+
+- **Clip loop and markers:** `get_clip_loop` and `set_clip_loop` read and change the loop switch, the loop brace (`loop_start`, `loop_end`, or `loop_length`) and the start/end markers, on Session and Arrangement clips. Live refuses a start at or past the end at any moment, so the writes are ordered by the direction of the move, and both ranges are checked before anything is written. The reply gives the applied values and an `adjusted` entry for any value Live changed. Units are reported: beats, or seconds for an unwarped audio clip.
+- A `playback` summary says what actually plays. Live 12.4.5 plays an unlooped clip from `loop_start` to `loop_end` and ignores a `start_marker` write on it, so start/end markers given for an unlooped clip are written to the loop brace (the reply says so).
+
+### Fixed
+
+- `set_clip_warp(original_bpm=…)` rounded the end marker down to a whole beat: a 16-beat drum loop 1 ms short at 140 BPM got its marker at beat 15. A file within 0.02 beat of a whole number of beats is now pinned to that beat (to the end of the file when it is a hair short, never past it), and the reply says so.
+
+## Remote Script 1.10.0
+
+### Added
+
+- **Notes in Arrangement clips:** `get_clip_notes`, `add_notes_to_clip` and `clear_notes_from_clip` take `location="arrangement"`, with the clip index listed by `get_arrangement_clips`. Note times stay in clip beats; Arrangement replies add `arrangement_start`, `arrangement_end` and `start_marker` to place them in the song. Session calls are sent exactly as before.
+- **`remove_notes`:** removes the notes that start in a time range and a pitch range, leaving the others, to rewrite one bar or one drum lane without clearing the clip.
+
+### Safety
+
+- The server only sends `location="arrangement"` to a Remote Script that advertises `arrangement_notes`: an older script would ignore it and edit the Session clip in the same slot.
+
+### Fixed
+
+- `clear_notes_from_clip` also removes notes past the clip's `length` (after its end marker or loop end were moved).
+
+## Remote Script 1.9.0
+
+### Added
+
+New MCP tools and matching Remote Script commands. Each takes `location`: `session` (clip slot index) or `arrangement` (index as listed by `get_arrangement_clips`).
+
+- **Warp:** `get_clip_warp`, `set_clip_warp` (warping, warp mode, pitch, gain), `edit_warp_markers` (Live 11+). `set_clip_warp(original_bpm=…)` conforms a loop to the song tempo: it turns warping on, keeps the first warp marker and pins the last whole beat of the file to its time at that tempo.
+- **Clip automation:** `set_clip_automation` writes a clip envelope for a device parameter or a mixer control (volume, panning, sends), from points with linear ramps or held steps; an empty point list clears it. `get_clip_automation` samples an envelope back. Session clips only: Live 12 refuses clip automation on Arrangement clips from a script, and Arrangement automation lanes aren't reachable from its API.
+
+### Internal
+
+- `_resolve_clip()` resolves Session and Arrangement clips for the new commands.
+- New tests in `tests/test_warp_automation.py` (fake Clip / AutomationEnvelope).
 
 ## Remote Script 1.8.2
 
