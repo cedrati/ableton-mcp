@@ -324,6 +324,13 @@ Once the config file has been set on Claude, and the remote script is running in
 | `remove_notes` | Removes the notes starting in a time range and a pitch range (e.g. one bar, or one drum lane), leaving the rest. Session or Arrangement. |
 | `get_clip_loop` | Loop switch, loop brace and start/end markers of a clip, with their units (beats, or seconds for an unwarped audio clip). |
 | `set_clip_loop` | Changes them (`loop_length` as a shortcut for the loop end). Writes are ordered so the start never passes the end; the reply lists any value Live adjusted. Session or Arrangement. |
+| `load_instrument_or_effect` / `get_track_info` / `get_device_parameters` / `set_device_parameter` | Take `track_type`: `track` (default), `return` or `master`, e.g. a shared reverb on a return track or a limiter on the main track. Plugins (VST/AU) and User Library items load like any browser item: browse them with `get_browser_items_at_path("plugins/…")` or `("user_library/…")`. |
+| `get_track_routing` / `set_track_routing` | Input/output routing type and channel, and monitoring (`in`, `auto`, `off`), by the names Live shows. Layer one MIDI part on several instruments (input = another MIDI track, monitoring `in`), resample the main output, route to a return. |
+| `record_arrangement` | Records the armed tracks into the Arrangement between two song positions, stopping at the end position; waits by default. `get_recording_status` / `stop_arrangement_recording` follow or stop it. |
+| `get_audio_clip_file` | Path of the file behind an audio clip (e.g. a fresh take), with length and sample rate. |
+| `analyze_audio_file` | Measures a WAV/AIFF file: peak/RMS (dBFS), clipping, crest factor, loudness per segment, silences, stereo correlation, low/mid/high balance, warnings. No dependency. |
+| `listen_to_arrangement` | Records the main output between two positions on a temporary resampling track (real time) and returns the analysis, so the model can check a mix. The track is deleted afterwards; the file stays in `Samples/Recorded`. |
+| `import_midi_file` | Imports a `.mid` file (format 0/1) into a Session clip (created to fit) or an Arrangement clip, with track/channel filters and transposition. Without `track_index`, describes the file. |
 
 The mixer tools reply with Live's display value (e.g. `-6.0 dB`, `25L`), so you can check what actually changed.
 
