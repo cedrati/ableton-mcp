@@ -1,8 +1,10 @@
 <div align="center">
 
+<img src="docs/social-preview.png" alt="Ableton MCP Extended Edition — AI music production in Ableton Live with Claude: compose, arrange, mix, master, listen, music theory, techno drums" width="100%">
+
 # Ableton MCP — Extended Edition
 
-**Let Claude (or any MCP client) compose, arrange, mix, listen to and analyse music in Ableton Live.**
+**The Ableton Live MCP server that lets Claude (or any MCP client) compose, arrange, mix, master, listen to and analyse music in Ableton Live 11 & 12.**
 
 An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)).
 
@@ -11,13 +13,15 @@ An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
 [![Tests](https://github.com/cedrati/ableton-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/cedrati/ableton-mcp/actions/workflows/tests.yml)
 
-[Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
+[Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [FAQ](#faq) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
 
 </div>
 
 ---
 
 ## About
+
+**AI music production in Ableton Live.** This is a [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server and Ableton Remote Script that connect Ableton Live to Claude, Claude Code, Claude Desktop, Cursor and other MCP clients, so an AI assistant can work inside your Live set: write MIDI, program drums, build arrangements, mix with Live's devices, check loudness (LUFS) and true peak, and reason about harmony.
 
 [Ableton MCP](https://github.com/ahujasid/ableton-mcp), created by Siddharth Ahuja, connects Ableton Live to AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io): the assistant can create tracks and clips, write notes, load devices and drive the transport.
 
@@ -236,6 +240,28 @@ The mix report checks: integrated / short-term / momentary loudness and loudness
 - **Listening takes real time:** analysing a 3-minute song means playing it for 3 minutes.
 - **Device loading, playhead moves and locators** reply only once Live has applied them. Loading the same device that is already on a track resets it in place (the reply says so).
 - **Destructive tools** (`delete_track`, `delete_scene`, `delete_clip`, `delete_arrangement_clip`) do what they say — save your set before big experiments.
+
+---
+
+## FAQ
+
+**How do I control Ableton Live with Claude?**
+Install this MCP server in Claude Code, Claude Desktop or Cursor, install the Remote Script into Live, and select *AbletonMCP* as a control surface (see [Quickstart](#quickstart)). Then ask in plain language: *"program 8 bars of rolling techno on the 909 kit"*.
+
+**Can an AI mix and master in Ableton Live?**
+It can measure and act: `listen_to_arrangement` records the main output and reports integrated loudness (LUFS, EBU R128), true peak, loudness range, tonal balance, resonances and stereo width against a target (streaming −14 LUFS, club, classical, broadcast, podcast), with a spectrogram image the assistant looks at; the mixer, EQ Eight, Limiter, Compressor sidechain and other devices are then adjusted through the API.
+
+**Does it work with Ableton Live 12, Live 11, Push, Max for Live?**
+Live 11 and 12 (Live 12 for the song scale and some device features). Max for Live devices and VST/AU plug-ins load like built-in devices; Push and other control surfaces keep working alongside it.
+
+**Which MCP clients are supported?**
+Any MCP client: Claude Code, Claude Desktop, Cursor, and others that speak the Model Context Protocol.
+
+**Can it make techno and electronic music?**
+Yes — drum programming from 19 electronic styles or step grids (Euclidean rhythms, ratchets, per-note probability), long filter builds over 64 bars, DJ-friendly arrangements with intro and outro, sidechain ducking, and a club loudness target.
+
+**What can't it do?**
+Live's API doesn't let a script save the set, export audio, create group tracks, write Arrangement automation directly or use Live 12's MIDI Tools; see [Good to know](#good-to-know).
 
 ---
 
