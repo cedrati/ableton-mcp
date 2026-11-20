@@ -13,7 +13,7 @@ By **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)) — built on [ab
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
 [![Tests](https://github.com/cedrati/ableton-studio-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/cedrati/ableton-studio-mcp/actions/workflows/tests.yml)
 
-[Quickstart](#quickstart) · [Features](#features) · [Tools](#tool-reference) · [FAQ](#faq) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-studio-mcp/issues)
+[Quickstart](#quickstart) · [Features](#features) · [Tools](#tool-reference) · [FAQ](#faq) · [Roadmap](https://github.com/cedrati/ableton-studio-mcp/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-studio-mcp/issues)
 
 </div>
 
@@ -260,6 +260,9 @@ Any MCP client: Claude Code, Claude Desktop, Cursor, and others that speak the M
 
 **Can it make techno and electronic music?**
 Yes — drum programming from 19 electronic styles or step grids (Euclidean rhythms, ratchets, per-note probability), long filter builds over 64 bars, DJ-friendly arrangements with intro and outro, sidechain ducking, and a club loudness target.
+
+**What's next?**
+The [roadmap](https://github.com/cedrati/ableton-studio-mcp/issues?q=is%3Aissue+is%3Aopen+label%3Aroadmap) lists the planned work: sound design recipes, A/B comparison with reference tracks, finding samples by sound, audio-to-MIDI transcription, and more. Ideas and contributions are welcome in the issues.
 
 **What can't it do?**
 Live's API doesn't let a script save the set, export audio, create group tracks, write Arrangement automation directly or use Live 12's MIDI Tools; see [Good to know](#good-to-know).
