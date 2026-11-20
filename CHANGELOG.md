@@ -1,6 +1,6 @@
 # Changelog
 
-Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp), branch `feat/mixer-scenes`) relative to the upstream [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp).
+Changes in the extended edition by Olivier Cedrati ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp), branch `feat/mixer-scenes`) relative to the original [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp).
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 

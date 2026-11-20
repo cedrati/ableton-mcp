@@ -1,52 +1,62 @@
 <div align="center">
 
-# Ableton MCP
+# Ableton MCP — Extended Edition
 
-**Connect Ableton Live to Claude AI**
+**Let Claude (or any MCP client) compose, arrange, mix, listen to and analyse music in Ableton Live.**
 
-Prompt-assisted music production, end-to-end track creation, and Live session and arrangement manipulation — driven by AI.
+An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)).
 
-[![PyPI Version](https://img.shields.io/pypi/v/ableton-mcp?color=blue)](https://pypi.org/project/ableton-mcp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/JK4hNKGprW)
+![Remote Script](https://img.shields.io/badge/Remote%20Script-1.14.0-blue)
+![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
+![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen)
 
-[**Setup Video**](https://youtu.be/iJWJqyVuPS8) · [**Discord**](https://discord.gg/JK4hNKGprW) · [**Issues**](https://github.com/ahujasid/ableton-mcp/issues)
+[Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
 
 </div>
 
 ---
 
-> ### About this fork
->
-> This is a fork of [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp). It adds:
->
-> - **Mixer control** — volume, panning, sends, mute, solo and arm, on regular tracks, return tracks and the master
-> - **Track management** — duplicate and delete tracks
-> - **Scene management** — list, create, rename, duplicate, launch and delete scenes
-> - **Arrangement editing** — delete clips from the Arrangement timeline
-> - **Reliability fixes** — the playhead position, locator creation and instrument loading no longer report stale state (see [Changelog](CHANGELOG.md))
->
-> The fork lives on the `feat/mixer-scenes` branch. `uvx ableton-mcp` installs the **original** package from PyPI, without these additions — use the commands below, which install from this repository.
+## About
+
+[Ableton MCP](https://github.com/ahujasid/ableton-mcp), created by Siddharth Ahuja, connects Ableton Live to AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io): the assistant can create tracks and clips, write notes, load devices and drive the transport.
+
+**This edition, written and maintained by Olivier Cedrati, turns it into a full production assistant.** Beyond writing notes, the assistant can mix (faders, sends, return and main-track effects, routing), **listen** to the result and judge it like a mastering engineer (LUFS, true peak, tonal balance, stereo, a spectrogram it can look at), and compose with real music-theory knowledge (scales and modes, style sheets, key and chord analysis, clip transformations, voice-led progressions).
+
+It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp). The `ableton-mcp` package on PyPI is the **original** project and does not include any of this — install from this repository as shown below.
+
+## What this edition adds
+
+| Area | What the assistant can do |
+|---|---|
+| **Mixing** | Volume, pan, sends, mute, solo, arm on tracks, return tracks and the main track. Load effects on return tracks and the main track (a shared reverb, a limiter). Read every parameter as Live displays it (`Bell`, `1.56 kHz`, `-6.0 dB`). |
+| **Routing** | Set track inputs, outputs and monitoring: layer one MIDI part on several instruments, resample the main output, route to a return. |
+| **Listening & mastering analysis** | Record the main output in real time and get a report: loudness per ITU-R BS.1770 / EBU R128 (integrated, short-term, momentary, loudness range), true peak, PLR, tonal balance against a reference curve, resonances, stereo width per band, low-end mono, each track's meter level, a spectrogram image — and ranked findings with fixes for a delivery target (streaming, club, classical, broadcast, podcast). |
+| **Music theory** | ~50 scales and modes with their character and typical styles; 24 style sheets (baroque to techno); key, mode and chord analysis of a clip with roman numerals; 17 clip transformations (mode change, diatonic transposition, harmonization, arpeggios, voicings, swing...); voice-led chord progressions; Live 12's song scale. |
+| **Clips** | Notes in Arrangement clips, partial note removal, loop brace and markers, warp (modes, markers, conform a loop to the tempo), clip automation envelopes. |
+| **Files** | Import Standard MIDI Files into clips; analyse any WAV/AIFF. |
+| **Session** | Duplicate and delete tracks; list, create, rename, duplicate, launch and delete scenes; delete Arrangement clips. |
+| **Devices & browser** | Plugins (VST, VST3, AU), User Library and Packs are browsable and loadable like built-in devices. |
+| **Reliability** | Playhead moves, locator creation and device loading reply only once Live has applied them; version handshake between server and Remote Script; capability checks so a newer server never sends a command an older script would misread. |
+
+Everything is covered by automated tests (211) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
+
+---
 
 ## Quickstart
 
-Three steps: install `uv`, point your MCP client at the server, install the Ableton Remote Script.
+### Requirements
 
-**1. Install uv**
+- **Ableton Live 11 or 12** (Live 12 for the song scale; Live 10 works for the original features)
+- **[uv](https://docs.astral.sh/uv/getting-started/installation/)** — on macOS: `brew install uv`
+- An MCP client: Claude Code, Claude Desktop, Cursor...
 
-```bash
-# macOS
-brew install uv
-```
+Python (3.10+) and the dependencies, including `numpy`, are installed automatically by `uv`.
 
-Otherwise, install from [uv's official website](https://docs.astral.sh/uv/getting-started/installation/).
-
-> **Warning:** Do not proceed before installing uv.
-
-**2. Add the MCP server to your client**
+### 1. Add the server to your MCP client
 
 <details open>
-<summary><b>Claude Code</b> — in a terminal</summary>
+<summary><b>Claude Code</b></summary>
 
 ```bash
 claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp
@@ -58,321 +68,143 @@ claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/able
 
 ```json
 {
-    "mcpServers": {
-        "AbletonMCP": {
-            "command": "uvx",
-            "args": [
-                "--from",
-                "git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes",
-                "ableton-mcp"
-            ]
-        }
+  "mcpServers": {
+    "AbletonMCP": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes", "ableton-mcp"]
     }
+  }
 }
 ```
 </details>
 
 <details>
-<summary><b>Cursor</b> — Settings → MCP</summary>
-
-Paste this as a command:
+<summary><b>Cursor</b> — Settings → MCP, as a command</summary>
 
 ```
 uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp
 ```
 </details>
 
-> **Warning:** Only run one instance of the MCP server (in one client), not several.
+Run the server in **one** client at a time.
 
-**3. Install the Ableton Remote Script**
+### 2. Install the Remote Script into Live
 
 ```bash
 uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp-install-script
-# preview target folders first:
-uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp-install-script --list-targets
 ```
 
-> The server and the Remote Script must come from the same version: the fork's server needs the fork's script (1.8.2). Install both from this repository.
+This copies the script into your User Library's `Remote Scripts/AbletonMCP` folder (found from Live's own settings; `--list-targets` shows where it would go, `--target <folder>` forces a location). A previous version is kept as `__init__.py.bak`.
 
-**4. Connect**
+The server and the Remote Script must come from the **same version** — always install both from this repository.
 
-1. Launch (or **restart**) Ableton Live
-2. Go to **Settings/Preferences → Link, Tempo & MIDI**
-3. In the **Control Surface** dropdown, select **AbletonMCP**
-4. Set **Input** and **Output** to **None**
+### 3. Enable it in Live
 
-That's it — ask Claude to build something. To check the setup, ask Claude to run `get_remote_script_info`: it should report `script_version` 1.8.2 and `up_to_date: true`.
+1. Start (or **restart**) Ableton Live.
+2. **Settings → Link, Tempo & MIDI → Control Surface:** choose **AbletonMCP**, with Input and Output set to **None**.
 
----
+### 4. Check
 
-## Table of Contents
+Ask the assistant to run `get_remote_script_info`. It should report `script_version` **1.14.0** and `up_to_date: true`.
 
-- [Quickstart](#quickstart)
-- [Features](#features)
-- [Components](#components)
-- [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Claude for Desktop Integration](#claude-for-desktop-integration)
-  - [Cursor Integration](#cursor-integration)
-  - [Claude Code Integration](#claude-code-integration)
-  - [Installing the Ableton Remote Script](#installing-the-ableton-remote-script)
-- [Usage](#usage)
-  - [Starting the Connection](#starting-the-connection)
-  - [Using with Claude](#using-with-claude)
-  - [Capabilities](#capabilities)
-  - [Tools added by this fork](#tools-added-by-this-fork)
-  - [Behavior worth knowing](#behavior-worth-knowing)
-  - [Example Commands](#example-commands)
-- [Troubleshooting](#troubleshooting)
-  - [Known limitations](#known-limitations)
-- [Changelog](CHANGELOG.md)
-- [Technical Details](#technical-details)
-- [Limitations & Security Considerations](#limitations--security-considerations)
-- [Telemetry](#telemetry)
-- [Join the Community](#join-the-community)
-- [Contributing](#contributing)
-- [Disclaimer](#disclaimer)
+### Updating
+
+1. Re-run the install command of step 2.
+2. **Restart Live** — re-selecting the control surface does not reload the code.
+3. Restart your MCP client. If it still runs old code: `uv cache clean ableton-mcp` (with the client closed).
 
 ---
 
-## Features
+## What you can ask
 
-| | |
+**Compose and arrange**
+- *"Write a C minor organ fugue: subject, answer at the fifth, countersubject, stretto."*
+- *"Give me a deep house progression in A minor with offbeat stabs, then a rolling bassline."*
+- *"Analyse the clip on track 2: key, chords, roman numerals."*
+- *"Re-harmonise this melody in Dorian, add a third above, swing it at 58 %."*
+- *"Import this MIDI file and transpose it to F#."*
+
+**Mix and master**
+- *"Listen to the whole track and tell me if it's ready for streaming."*
+- *"Put a cathedral reverb on return A and send the pads to it."*
+- *"The low end is muddy — find out why and fix it."*
+- *"Layer the bass MIDI on a second synth one octave down."*
+
+---
+
+## Tool reference
+
+Indexes start at 0. Times and lengths are in **beats**. Notes use MIDI numbers (60 = C4 in scientific pitch, shown as C3 in Live).
+
+### Session and transport
+
+| Tool | Description |
 |---|---|
-| **Two-way communication** | Connect Claude AI to Ableton Live through a socket-based server |
-| **Track manipulation** | Create, modify, and manipulate MIDI and audio tracks |
-| **Instrument and effect selection** | Claude can access and load the right instruments, effects and sounds from Ableton's library |
-| **Clip creation** | Create and edit MIDI clips with notes |
-| **Arrangement view composition** | Build full songs autonomously in Arrangement View, including sections like intro, buildup, drop, breakdown, and outro |
-| **Session control** | Start and stop playback, fire clips, and control transport across Session View and Arrangement View |
-| **Mixer control** *(fork)* | Volume, panning, sends, mute, solo and arm on tracks, return tracks and the master |
-| **Scenes** *(fork)* | List, create, rename, duplicate, launch and delete Session View scenes |
-| **Anonymous telemetry** | Usage tracking to help improve the tool (can be disabled) |
+| `get_session_info` / `get_session_snapshot` | Tempo, time signature, tracks, transport; full state dump. |
+| `set_tempo` · `start_playback` · `stop_playback` | Transport. |
+| `get_scenes` · `create_scene` · `set_scene_name` · `duplicate_scene` · `fire_scene` · `delete_scene` | Scenes. |
+| `switch_to_arrangement_view` · `set_arrangement_time` · `create_locator` | Arrangement view, playhead, locators. |
+| `get_remote_script_info` | Version handshake and capabilities. |
 
-## Components
+### Tracks, mixer and routing
 
-The system consists of two main components:
-
-1. **Ableton Remote Script** (`Ableton_Remote_Script/__init__.py`) — a MIDI Remote Script for Ableton Live that creates a socket server to receive and execute commands
-2. **MCP Server** (`server.py`) — a Python server that implements the Model Context Protocol and connects to the Ableton Remote Script
-
----
-
-## Installation
-
-### Prerequisites
-
-- **Ableton Live** 10 or newer
-- **Python** 3.8 or newer
-- **uv** package manager
-
-If you're on Mac, please install uv as:
-
-```
-brew install uv
-```
-
-Otherwise, install from [uv's official website](https://docs.astral.sh/uv/getting-started/installation/)
-
-> **Warning:** Do not proceed before installing uv.
-
-### Claude for Desktop Integration
-
-[Follow along with the setup instructions video](https://youtu.be/iJWJqyVuPS8)
-
-Go to **Claude → Settings → Developer → Edit Config → `claude_desktop_config.json`** to include the following:
-
-```json
-{
-    "mcpServers": {
-        "AbletonMCP": {
-            "command": "uvx",
-            "args": [
-                "ableton-mcp"
-            ]
-        }
-    }
-}
-```
-
-### Cursor Integration
-
-Run ableton-mcp without installing it permanently through uvx. Go to **Cursor Settings → MCP** and paste this as a command:
-
-```
-uvx ableton-mcp
-```
-
-> **Warning:** Only run one instance of the MCP server (either on Cursor or Claude Desktop), not both.
-
-### Claude Code Integration
-
-In the terminal, run:
-
-```
-claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp
-```
-
-> The commands in this section that use plain `uvx ableton-mcp` install the original package from PyPI. To get this fork, use the `--from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes` form shown in the [Quickstart](#quickstart).
-
-### Installing the Ableton Remote Script
-
-[Follow along with the setup instructions video](https://youtu.be/iJWJqyVuPS8)
-
-Install the Remote Script with:
-
-```bash
-uvx --from ableton-mcp ableton-mcp-install-script
-uvx --from ableton-mcp ableton-mcp-install-script --list-targets   # preview target folders first
-```
-
-> If you installed the package with `pip` or `pipx`, the command is on your PATH directly — just run `ableton-mcp-install-script`.
-
-This copies the matching Remote Script into your Ableton **User Library**'s `Remote Scripts` folder — the location Live (10.1.13+) scans for third-party control surface scripts. The installer reads the User Library location from Live's `Library.cfg`, falling back to the default (`~/Music/Ableton/User Library` on macOS, `Documents\Ableton\User Library` on Windows). If a different version of the script is already there, the existing file is backed up to `__init__.py.bak` before being replaced.
-
-If your User Library lives somewhere non-standard and isn't detected, point the installer at it directly:
-
-```bash
-uvx --from ableton-mcp ableton-mcp-install-script --target "/path/to/User Library/Remote Scripts"
-```
-
-> The legacy `Preferences/User Remote Scripts` folder (used for instant-mapping configs, not Python control surfaces) is no longer targeted by default; pass `--legacy` if you need it for an old Live version.
-
-Then **restart Ableton** so Live loads it. Re-run the command after upgrading the package — the server logs a warning when the loaded script version doesn't match what it expects.
-
-> **Restart Live, don't just re-select the control surface.** Switching the Control Surface to *None* and back re-creates the script from the Python module Live already imported, so a new `__init__.py` is **not** picked up. Only a restart of Live reloads the code.
-
-> **Note:** The server does **not** install the script on startup. Writing into Ableton's preferences directory is an explicit action, not a side effect of launching a server.
-
-**First-time Ableton setup:**
-
-1. Run `uvx --from ableton-mcp ableton-mcp-install-script`
-2. Launch Ableton Live
-3. Go to **Settings/Preferences → Link, Tempo & MIDI**
-4. In the **Control Surface** dropdown, select **AbletonMCP**
-5. Set **Input** and **Output** to **None**
-
-<details>
-<summary><b>Manual fallback locations (User Library → Remote Scripts)</b></summary>
-
-- **macOS:** `~/Music/Ableton/User Library/Remote Scripts/AbletonMCP/`
-- **Windows:** `C:\Users\[Username]\Documents\Ableton\User Library\Remote Scripts\AbletonMCP\`
-
-If you've moved your User Library, use its actual location (shown in Live under **Preferences → Library → Location of User Library**), and create the `Remote Scripts` folder inside it if it doesn't exist yet.
-</details>
-
-The MCP server and Remote Script share a version handshake (`get_remote_script_info`). If they diverge, newer tools degrade gracefully until Live is restarted.
-
----
-
-## Usage
-
-### Starting the Connection
-
-1. Ensure the Ableton Remote Script is loaded in Ableton Live
-2. Make sure the MCP server is configured in Claude Desktop or Cursor
-3. The connection should be established automatically when you interact with Claude
-
-### Using with Claude
-
-Once the config file has been set on Claude, and the remote script is running in Ableton, you will see a hammer icon with tools for the Ableton MCP.
-
-### Capabilities
-
-- Get session and track information
-- Create and modify MIDI and audio tracks
-- Create full song arrangements from start to finish in Arrangement View
-- Create, edit, and trigger clips
-- Control playback
-- Load instruments and effects from Ableton's browser
-- Add notes to MIDI clips
-- Change tempo and other session parameters
-- Read and set device parameters
-- Mix: volume, panning, sends, mute, solo, arm *(fork)*
-- Duplicate and delete tracks *(fork)*
-- Manage scenes *(fork)*
-- Delete Arrangement clips *(fork)*
-- Warp audio clips: mode, warp markers, conform a loop to the song tempo *(fork)*
-- Clip automation envelopes for device and mixer parameters *(fork)*
-- Read and edit notes in Arrangement clips *(fork)*
-- Clip loop brace and start/end markers *(fork)*
-- Devices on return tracks and the main track; plugins (VST/AU) and User Library items *(fork)*
-- Track routing (inputs, outputs, monitoring) *(fork)*
-- Record into the Arrangement, and "listen": resample the main output and analyze levels, clipping, loudness over time, stereo and spectral balance *(fork)*
-- Import Standard MIDI Files into clips *(fork)*
-- Mix / master report with LUFS, true peak, tonal balance, stereo and a spectrogram image *(fork)*
-- Music theory: scales/modes, styles, clip analysis (key, chords, roman numerals), clip transformations, progressions, Live's song scale *(fork)*
-
-### Tools added by this fork
-
-| Tool | What it does |
+| Tool | Description |
 |---|---|
-| `set_track_volume` | Fader, normalized 0.0–1.0 (0.85 ≈ 0 dB). `track_type`: `track` (default), `return` or `master`. Values above 1.0 are clamped to 1.0 (+6 dB). |
-| `set_track_panning` | −1.0 (left) … 0.0 (center) … 1.0 (right). Same `track_type` values. |
-| `set_track_send` | Send level 0.0–1.0; `send_index` 0 = first return track (Send A). |
-| `set_track_mute` / `set_track_solo` | Mute / solo a track or return track. |
-| `set_track_arm` | Arm or disarm a track for recording. |
-| `duplicate_track` | Copies a track with its clips and devices, inserted right after it. |
-| `delete_track` | Deletes a track; later track indexes shift down by one. Destructive. |
-| `get_scenes` | Lists scenes (index, name, tempo; `null` when a scene has no tempo). |
-| `create_scene` | Adds a scene (`index` −1 = at the end). |
-| `set_scene_name` | Renames a scene. |
-| `duplicate_scene` | Copies a scene with its clips, inserted right after it. |
-| `fire_scene` | Launches every clip in a scene's row. |
-| `delete_scene` | Deletes a scene and every clip in its row. Destructive. |
-| `delete_arrangement_clip` | Deletes an Arrangement clip, indexed as listed by `get_arrangement_clips` (Live 11+). |
-| `get_clip_warp` | An audio clip's warp state: on/off, mode, available modes, warp markers (beat ↔ seconds), pitch, gain, sample duration. `location`: `session` (default) or `arrangement`. |
-| `set_clip_warp` | Warping on/off, `warp_mode` (`beats`, `tones`, `texture`, `re_pitch`, `complex`, `complex_pro`), `pitch_coarse`, `pitch_fine`, `gain`. `original_bpm` conforms a loop to the song tempo by rebuilding its warp markers. |
-| `edit_warp_markers` | Removes, moves, then adds warp markers (Live 11+, warping must be on). |
-| `set_clip_automation` | Writes a clip envelope for a device parameter (`device_index` + `parameter_index`) or a mixer control (`mixer_parameter`: `volume`, `panning`, `send:N`). `points` in clip beats; `linear` ramps or `step` holds. Session clips only: Live's API refuses clip automation on Arrangement clips. |
-| `get_clip_automation` | Samples a clip envelope every `resolution` beats. |
-| `get_clip_notes` / `add_notes_to_clip` / `clear_notes_from_clip` | Take `location="arrangement"` (clip index as listed by `get_arrangement_clips`). Times are clip beats; Arrangement replies add `arrangement_start`, `arrangement_end` and `start_marker`. |
-| `remove_notes` | Removes the notes starting in a time range and a pitch range (e.g. one bar, or one drum lane), leaving the rest. Session or Arrangement. |
-| `get_clip_loop` | Loop switch, loop brace and start/end markers of a clip, with their units (beats, or seconds for an unwarped audio clip). |
-| `set_clip_loop` | Changes them (`loop_length` as a shortcut for the loop end). Writes are ordered so the start never passes the end; the reply lists any value Live adjusted. Session or Arrangement. |
-| `load_instrument_or_effect` / `get_track_info` / `get_device_parameters` / `set_device_parameter` | Take `track_type`: `track` (default), `return` or `master`, e.g. a shared reverb on a return track or a limiter on the main track. Plugins (VST/AU) and User Library items load like any browser item: browse them with `get_browser_items_at_path("plugins/…")` or `("user_library/…")`. |
-| `get_track_routing` / `set_track_routing` | Input/output routing type and channel, and monitoring (`in`, `auto`, `off`), by the names Live shows. Layer one MIDI part on several instruments (input = another MIDI track, monitoring `in`), resample the main output, route to a return. |
-| `record_arrangement` | Records the armed tracks into the Arrangement between two song positions, stopping at the end position; waits by default. `get_recording_status` / `stop_arrangement_recording` follow or stop it. |
-| `get_audio_clip_file` | Path of the file behind an audio clip (e.g. a fresh take), with length and sample rate. |
-| `analyze_audio_file` | Measures a WAV/AIFF file: peak/RMS (dBFS), clipping, crest factor, loudness per segment, silences, stereo correlation, low/mid/high balance, warnings. No dependency. |
-| `listen_to_arrangement` | Records the main output between two positions on a temporary resampling track (real time), samples every track's meter during the take, and returns the `analyze_mix` report with the spectrogram (`report="mix"`, default) or a basic level report. The track is deleted afterwards; the file stays in `Samples/Recorded`. |
-| `analyze_mix` | Mastering report on a WAV/AIFF: LUFS (BS.1770 / EBU R128: integrated, short-term, momentary, loudness range), true peak, PLR, 1/3-octave tonal balance against a -4.5 dB/oct reference, resonances, stereo per band, ranked findings with fixes for a target (`streaming`, `club`, `classical`, `broadcast`, `podcast`), and a spectrogram image. Needs `numpy`. |
-| `music_scales` / `music_styles` / `music_chord_ideas` | Knowledge base: ~50 scales and modes (character, characteristic note, styles, diatonic chords with roman numerals, relative modes), 24 style sheets (harmony, progressions, groove, swing, bass, melody, arrangement, Live devices), reharmonisation ideas. |
-| `analyze_clip_music` | Key/mode, chords with roman numerals (`basic` or `jazz` vocabulary), out-of-scale notes, range, rhythm and melodic motion of a MIDI clip. |
-| `transform_clip` | Chain of operations on a clip, in place or into an empty slot: transpose (chromatic/diatonic), change mode, snap to scale, invert, retrograde, time scale, quantize, swing, humanize, accent, articulation, range folding, diatonic harmonization, arpeggiate, strum, chord voicings. |
-| `write_progression` | Roman numerals or a style's progression, voice-led and rendered with an accompaniment pattern and a bass line. |
-| `get_song_scale` / `set_song_scale` | Live 12's song scale and Scale Mode. |
-| `get_track_meters` | Live's output meters for every track, return track and the main track. |
-| `import_midi_file` | Imports a `.mid` file (format 0/1) into a Session clip (created to fit) or an Arrangement clip, with track/channel filters and transposition. Without `track_index`, describes the file. |
+| `create_midi_track` · `create_audio_track` · `set_track_name` · `duplicate_track` · `delete_track` | Tracks. |
+| `get_track_info` | Track, return track (`track_type="return"`) or main track (`"master"`): mixer state, clip slots, devices. |
+| `set_track_volume` · `set_track_panning` · `set_track_send` · `set_track_mute` · `set_track_solo` · `set_track_arm` | Mixer; reply with Live's display value (`-6.0 dB`, `25L`). `track_type` reaches return tracks and the main track. |
+| `get_track_routing` · `set_track_routing` | Input/output type and channel, monitoring (`in`, `auto`, `off`), matched by the names Live shows. |
+| `get_track_meters` | Live's output meter of every track, return and the main track. |
 
-The mixer tools reply with Live's display value (e.g. `-6.0 dB`, `25L`), so you can check what actually changed.
+### Devices and browser
 
-### Behavior worth knowing
-
-- **`create_locator`** moves the playhead to the target beat, waits for Live to get there, creates the cue, then puts the playhead back. If a locator already exists at that beat it is renamed. It refuses while the transport is playing, since Live would place the cue at the moving playhead.
-- **`set_arrangement_time`** replies only once Live reports the playhead at the new position.
-- **`load_instrument_or_effect`** replies once the device has appeared on the track and lists the new device(s). Loading the **same** device that is already on the track (e.g. Drift over Drift) doesn't replace it: Live keeps it and resets its parameters to their defaults. The reply says so ("reloaded in place"). If the parameters were already at their defaults, there is nothing to observe and the reply says it couldn't confirm the load.
-
-### Example Commands
-
-Here are some examples of what you can ask Claude to do:
-
-| Prompt | Demo |
+| Tool | Description |
 |---|---|
-| *"Create an 80s synthwave track"* | [Watch](https://youtu.be/VH9g66e42XA) |
-| *"Create a Metro Boomin style hip-hop beat"* | |
-| *"Create a full arrangement with an intro, buildup, drop, breakdown, and outro"* | |
-| *"Create a new MIDI track with a synth bass instrument"* | |
-| *"Add reverb to my drums"* | |
-| *"Create a 4-bar MIDI clip with a simple melody"* | |
-| *"Get information about the current Ableton session"* | |
-| *"Load a 808 drum rack into the selected track"* | |
-| *"Add a jazz chord progression to the clip in track 1"* | |
-| *"Set the tempo to 120 BPM"* | |
-| *"Play the clip in track 2"* | |
-| *"Turn the bass down 3 dB, pan it slightly left and send some reverb"* *(fork)* | |
-| *"Duplicate scene 1, name the copy 'Chorus' and launch it"* *(fork)* | |
-| *"Solo the drums"* *(fork)* | |
+| `get_browser_tree` · `get_browser_items_at_path` | Browse `instruments`, `sounds`, `drums`, `audio_effects`, `midi_effects`, `plugins`, `user_library`, `packs`, `samples`, `max_for_live`, `current_project`. |
+| `load_instrument_or_effect` · `load_drum_kit` | Load by browser URI, on a track, a return track or the main track. |
+| `get_device_parameters` · `set_device_parameter` | Every parameter with its range, Live's display string and, for list parameters, the names of the values. |
+
+### Clips and notes
+
+| Tool | Description |
+|---|---|
+| `create_clip` · `create_audio_clip` · `set_clip_name` · `fire_clip` · `stop_clip` · `delete_clip` | Session clips. |
+| `get_clip_notes` · `add_notes_to_clip` · `clear_notes_from_clip` · `remove_notes` | Notes, in Session or Arrangement clips (`location="arrangement"`); `remove_notes` clears a time/pitch range only. |
+| `get_clip_loop` · `set_clip_loop` | Loop switch, loop brace, start/end markers. |
+| `get_clip_warp` · `set_clip_warp` · `edit_warp_markers` | Warp mode, markers, pitch, gain; `original_bpm` conforms a loop to the tempo. |
+| `get_clip_automation` · `set_clip_automation` | Clip envelopes for device and mixer parameters (Session clips). |
+| `get_arrangement_clips` · `duplicate_to_arrangement` · `set_arrangement_clip_name` · `delete_arrangement_clip` | Arrangement clips. |
+| `import_midi_file` | Import a `.mid` file (track/channel filters, transposition) or describe it. |
+
+### Listening and analysis
+
+| Tool | Description |
+|---|---|
+| `listen_to_arrangement` | Records the main output between two song positions on a temporary track (in real time), samples every track's meter, then returns the mix report and the spectrogram image. The track is removed afterwards; the take stays in the project's `Samples/Recorded` folder. |
+| `analyze_mix` | The same mastering report for any WAV/AIFF file. |
+| `analyze_audio_file` | Lightweight level report (no `numpy` needed). |
+| `record_arrangement` · `get_recording_status` · `stop_arrangement_recording` · `get_audio_clip_file` | Record armed tracks into the Arrangement between two positions; find the recorded file. |
+
+The mix report checks: integrated / short-term / momentary loudness and loudness range (validated on EBU reference signals), true peak (4× oversampled), PLR and crest factor, long-term spectrum and its tilt against a −4.5 dB/octave reference (sub, lows, low-mids, mids, high-mids, highs, air), narrow peaks with their note names, stereo correlation and width per band, low-end mono, DC offset. Each finding comes with a severity and a concrete fix using Live's own devices.
+
+### Music theory and composition
+
+| Tool | Description |
+|---|---|
+| `music_scales` | ~50 scales and modes — church modes, harmonic/melodic minor families, pentatonics, blues, bebop, symmetric, Japanese, gamelan, flamenco — with character, characteristic note, styles; or one scale in a key: spelled notes, diatonic chords with roman numerals and functions, relative modes, Live's name. |
+| `music_styles` | 24 style sheets (baroque, classical, jazz, bossa nova, blues, gospel/neo-soul, funk, pop, rock, house, techno, trance, drum & bass, boom bap, lo-fi, trap, R&B, reggae, reggaeton, afrobeat, flamenco, film score, ambient, synthwave): tempo, metre, scales, harmony, progressions, groove and swing, bass, melody, arrangement, Live devices. |
+| `music_chord_ideas` | Reharmonisation ideas for a chord, with the reason for each. |
+| `analyze_clip_music` | Key and mode, chords with roman numerals (`basic` or `jazz` vocabulary), out-of-scale notes, range, rhythm, melodic motion. |
+| `transform_clip` | Chain of operations, in place or into an empty slot: `transpose`, `transpose_diatonic`, `change_mode`, `snap_to_scale`, `invert`, `retrograde`, `time_scale`, `quantize`, `swing`, `humanize`, `accent`, `articulate`, `fold_range`, `harmonize`, `arpeggiate`, `strum`, `voice_chords`. |
+| `write_progression` | Roman numerals (secondary dominants, borrowed chords, Neapolitan) or a style's progression, voice-led, played with an accompaniment pattern and a bass line. |
+| `get_song_scale` · `set_song_scale` | Live 12's song scale and Scale Mode. |
+
+### Good to know
+
+- **Live's API has limits.** A script cannot save the set, export audio, create group tracks, or write Arrangement (song-level) automation such as tempo changes. Live's own analysers (Spectrum, EQ Eight's display, Max for Live meters) don't expose their readings — which is why listening works by recording the main output.
+- **Listening takes real time:** analysing a 3-minute song means playing it for 3 minutes.
+- **Device loading, playhead moves and locators** reply only once Live has applied them. Loading the same device that is already on a track resets it in place (the reply says so).
+- **Destructive tools** (`delete_track`, `delete_scene`, `delete_clip`, `delete_arrangement_clip`) do what they say — save your set before big experiments.
 
 ---
 
@@ -380,105 +212,45 @@ Here are some examples of what you can ask Claude to do:
 
 | Problem | Fix |
 |---|---|
-| **Connection issues** | Make sure the Ableton Remote Script is loaded, and the MCP server is configured on Claude |
-| **Timeout errors** | Try simplifying your requests or breaking them into smaller steps |
-| **Have you tried turning it off and on again?** | If you're still having connection errors, try restarting both Claude and Ableton Live |
-| **`up_to_date: false` in `get_remote_script_info`** | The script loaded in Live doesn't match the server. Re-run `ableton-mcp-install-script` from the same source as the server, then **restart Live** (re-selecting the control surface is not enough) |
-| **"missing capability" errors on the new tools** | Live is running the original (or an older) Remote Script. Same fix as above |
-| **Server still runs old code after a fork update** | Restart your MCP client. If it persists, clear uv's cache: `uv cache clean ableton-mcp` (close the MCP client first, it holds a lock on the cache) |
-
-### Known limitations
-
-- There is no tool to **delete a locator** yet; remove it by hand in the Arrangement view.
-- Device `type` is reported as `unknown` for Live's native instruments and effects.
-- The capability list returned by `get_remote_script_info` doesn't include every command the script supports (e.g. `set_tempo`, `fire_clip`), but they work.
-
-## Technical Details
-
-### Communication Protocol
-
-The system uses a simple JSON-based protocol over TCP sockets:
-
-- **Commands** are sent as JSON objects with a `type` and optional `params`
-- **Responses** are JSON objects with a `status` and `result` or `message`
-
-## Limitations & Security Considerations
-
-- Creating complex musical arrangements might need to be broken down into smaller steps
-- The tool is designed to work with Ableton's default devices and browser items
-- Always save your work before extensive experimentation
+| `up_to_date: false`, or "missing capability" errors | The script in Live is older than the server. Re-run the install command, then **restart Live**. |
+| The server still runs old code after an update | Restart the MCP client; if needed `uv cache clean ableton-mcp` with the client closed. |
+| No connection | Check that **AbletonMCP** is selected as a Control Surface and that only one MCP client runs the server. |
+| Timeouts on big requests | Ask for the work in smaller steps. |
 
 ---
 
-## Telemetry
+## How it works
 
-There are two tiers, and they have different defaults.
+```
+MCP client (Claude…)  ⇄  MCP server (MCP_Server/, Python)  ⇄  TCP 127.0.0.1:9877  ⇄  Remote Script inside Live (AbletonMCP_Remote_Script/)
+```
 
-**Anonymous telemetry — on by default.** A random install ID, a per-run session ID, which tools ran, whether they succeeded, and how long they took. This is what counts active users and catches broken tools. It contains none of your content: no prompts, no MIDI, no track or clip names, no device settings.
+- The **Remote Script** runs inside Live and executes commands through Live's Python API. It listens on localhost only (set `ABLETON_MCP_HOST` deliberately to change that).
+- The **MCP server** exposes the tools, checks the script's version and capabilities, and does the heavy work outside Live: audio analysis, MIDI files, music theory.
+- Messages are JSON objects: `{"type": ..., "params": ...}` → `{"status": ..., "result" | "message": ...}`.
 
-**Dataset recording — off by default, opt-in.** Everything with your work in it: prompts, MIDI notes, track and clip names, and device settings, which may be published as part of an open dataset used to train music-production models. Nothing here is collected unless you explicitly turn it on.
-
-To see exactly what data each tier collects, see the [Terms & Data Use](TERMS.md).
-
-### Opting in to dataset recording
-
-Either set the environment variable before starting the server:
+### Development
 
 ```bash
-export ABLETON_MCP_ENABLE_DATASET=true
+git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-mcp
+cd ableton-mcp
+uv run --with pytest pytest -q          # 211 tests, no Live needed
+uv run ableton-mcp-install-script       # install your working copy into Live
 ```
 
-…or answer the question when your client asks it. On your first tool call you're asked once — as a dialog if your client supports MCP elicitation, otherwise as a message in the chat — and answering yes turns it on from that point. Your answer is stored in `~/.ableton-mcp/consent.json`. Declining, or never answering, records nothing. If you dismiss the dialog without choosing, that isn't treated as an answer and you may be asked again in a later session.
-
-### Opting out of anonymous telemetry
-
-Set one of these before starting the MCP server:
-
-```bash
-export ABLETON_MCP_DISABLE_TELEMETRY=true
-```
-
-Or use any of these alternatives:
-
-- `DISABLE_TELEMETRY=true`
-- `MCP_DISABLE_TELEMETRY=true`
-
-This also disables dataset recording. `ABLETON_MCP_DISABLE_DATASET=true` turns off dataset recording only, and overrides any stored grant.
-
-For Claude Desktop, add the environment variable to your config:
-
-```json
-{
-    "mcpServers": {
-        "AbletonMCP": {
-            "command": "uvx",
-            "args": ["ableton-mcp"],
-            "env": {
-                "ABLETON_MCP_DISABLE_TELEMETRY": "true"
-            }
-        }
-    }
-}
-```
+When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md).
 
 ---
 
-## Join the Community
+## Privacy
 
-Give feedback, get inspired, and build on top of the MCP: [**Discord**](https://discord.gg/JK4hNKGprW)
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Disclaimer
-
-This is a third-party integration and not made by Ableton. Made by [Siddharth](https://x.com/sidahuj). Fork maintained by [cedrati](https://github.com/cedrati) — report fork-specific issues on [this repository](https://github.com/cedrati/ableton-mcp/issues).
+The original project includes optional telemetry (anonymous tool usage) and an opt-in dataset recording. Both need credentials in a `MCP_Server/config.py` file that is **not** part of this repository, so **an install from this repository sends nothing**. Details and switches (`ABLETON_MCP_DISABLE_TELEMETRY`, `ABLETON_MCP_ENABLE_DATASET`) are in [TERMS.md](TERMS.md).
 
 ---
 
-<div align="center">
+## Credits and license
 
-**If Ableton MCP is useful to you, consider starring the repo**
+- **Original project:** [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by [Siddharth Ahuja](https://x.com/sidahuj).
+- **Extended edition:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, clip editing, MIDI import and reliability work. Report issues about this edition on [cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp/issues).
 
-</div>
+MIT License — see [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.
