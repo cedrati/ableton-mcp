@@ -7,9 +7,9 @@
 An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Remote Script](https://img.shields.io/badge/Remote%20Script-1.14.0-blue)
+![Remote Script](https://img.shields.io/badge/Remote%20Script-1.15.0-blue)
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
-![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)
 
 [Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
 
@@ -32,6 +32,7 @@ It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https
 | **Mixing** | Volume, pan, sends, mute, solo, arm on tracks, return tracks and the main track. Load effects on return tracks and the main track (a shared reverb, a limiter). Read every parameter as Live displays it (`Bell`, `1.56 kHz`, `-6.0 dB`). |
 | **Routing** | Set track inputs, outputs and monitoring: layer one MIDI part on several instruments, resample the main output, route to a return. |
 | **Listening & mastering analysis** | Record the main output in real time and get a report: loudness per ITU-R BS.1770 / EBU R128 (integrated, short-term, momentary, loudness range), true peak, PLR, tonal balance against a reference curve, resonances, stereo width per band, low-end mono, each track's meter level, a spectrogram image — and ranked findings with fixes for a delivery target (streaming, club, classical, broadcast, podcast). |
+| **Drums** | Program a Drum Rack from 19 electronic patterns (techno, house, garage, breaks, d'n'b...) or your own step grids: pads found by name, Euclidean and polyrhythmic layers, ratchets, ghost notes, per-note probability, fills, swing, Live's Groove Pool. |
 | **Music theory** | ~50 scales and modes with their character and typical styles; 24 style sheets (baroque to techno); key, mode and chord analysis of a clip with roman numerals; 17 clip transformations (mode change, diatonic transposition, harmonization, arpeggios, voicings, swing...); voice-led chord progressions; Live 12's song scale. |
 | **Clips** | Notes in Arrangement clips, partial note removal, loop brace and markers, warp (modes, markers, conform a loop to the tempo), clip automation envelopes. |
 | **Files** | Import Standard MIDI Files into clips; analyse any WAV/AIFF. |
@@ -39,7 +40,7 @@ It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https
 | **Devices & browser** | Plugins (VST, VST3, AU), User Library and Packs are browsable and loadable like built-in devices. |
 | **Reliability** | Playhead moves, locator creation and device loading reply only once Live has applied them; version handshake between server and Remote Script; capability checks so a newer server never sends a command an older script would misread. |
 
-Everything is covered by automated tests (211) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
+Everything is covered by automated tests (245) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
 
 ---
 
@@ -105,7 +106,7 @@ The server and the Remote Script must come from the **same version** — always 
 
 ### 4. Check
 
-Ask the assistant to run `get_remote_script_info`. It should report `script_version` **1.14.0** and `up_to_date: true`.
+Ask the assistant to run `get_remote_script_info`. It should report `script_version` **1.15.0** and `up_to_date: true`.
 
 ### Updating
 
@@ -123,6 +124,7 @@ Ask the assistant to run `get_remote_script_info`. It should report `script_vers
 - *"Analyse the clip on track 2: key, chords, roman numerals."*
 - *"Re-harmonise this melody in Dorian, add a third above, swing it at 58 %."*
 - *"Import this MIDI file and transpose it to F#."*
+- *"Program 8 bars of rolling techno on the 909 kit, with a 5-in-16 percussion layer and a clap roll every 4 bars."*
 
 **Mix and master**
 - *"Listen to the whole track and tell me if it's ready for streaming."*
@@ -187,6 +189,15 @@ Indexes start at 0. Times and lengths are in **beats**. Notes use MIDI numbers (
 
 The mix report checks: integrated / short-term / momentary loudness and loudness range (validated on EBU reference signals), true peak (4× oversampled), PLR and crest factor, long-term spectrum and its tilt against a −4.5 dB/octave reference (sub, lows, low-mids, mids, high-mids, highs, air), narrow peaks with their note names, stereo correlation and width per band, low-end mono, DC offset. Each finding comes with a severity and a concrete fix using Live's own devices.
 
+### Drums and groove
+
+| Tool | Description |
+|---|---|
+| `drum_patterns` | Pattern library (techno four, rolling, hypnotic, minimal, dub, hard, acid, Detroit, house, deep house, tech house, afro house, UK garage, breakbeat, electro, drum & bass, dubstep, trap, EBM) with tempo, swing and production notes; Euclidean rhythms. |
+| `get_drum_map` | A track's Drum Rack pads and the role each plays (kick, clap, hats, perc...). |
+| `write_drum_pattern` | Program a clip from a style and/or grids per role: `x` hit, `X` accent, `o` ghost, `2`-`4` ratchet, `?`/`*` probability; Euclidean layers, swing, fills, variation, humanize. |
+| `get_groove_pool` · `set_clip_groove` · `set_groove_params` | Live's Groove Pool: list grooves, apply one to a clip, adjust amounts and the global Groove amount. |
+
 ### Music theory and composition
 
 | Tool | Description |
@@ -234,7 +245,7 @@ MCP client (Claude…)  ⇄  MCP server (MCP_Server/, Python)  ⇄  TCP 127.0.0.
 ```bash
 git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-mcp
 cd ableton-mcp
-uv run --with pytest pytest -q          # 211 tests, no Live needed
+uv run --with pytest pytest -q          # 245 tests, no Live needed
 uv run ableton-mcp-install-script       # install your working copy into Live
 ```
 

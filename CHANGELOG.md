@@ -4,6 +4,20 @@ Changes in the extended edition by Olivier Cedrati ([cedrati/ableton-mcp](https:
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.15.0
+
+### Added
+
+- **Drum programming (server):** `write_drum_pattern` programs a Drum Rack from a pattern library and/or per-role grids. Roles (kick, clap, closed/open hat, rim, ride, perc, shaker, toms, conga, cowbell...) are matched to pads by their names, in English and French; a similar free pad stands in for a missing role, missing ones are reported, and General MIDI notes are only used without a Drum Rack (they would hit empty pads). Grid language: `x` hit, `X` accent, `o` ghost, `2`-`4` ratchets, `?` 50 % and `*` 25 % chance (Live 12's per-note probability). Grids of any length cycle over the clip, so a 12-step loop drifts against 16-step bars. Euclidean layers, swing, fills every N bars (roll, drop, open-hat lift, ratchet, crash), probability ghost-hat variation, humanize.
+- **`drum_patterns`:** 19 styles focused on electronic music (techno four-on-the-floor, rolling, hypnotic/polyrhythmic, minimal, dub, hard/industrial, acid, Detroit, classic and deep house, tech house, afro house, UK garage, breakbeat, electro, drum and bass, dubstep, trap, EBM) with tempo, swing and production notes; Euclidean rhythm generator (E(3,8) = tresillo).
+- **`get_drum_map`** (Remote Script `get_drum_rack_map`): filled pads of a track's Drum Rack with their inferred roles.
+- **Groove Pool** (Remote Script): `get_groove_pool`, `set_clip_groove`, `set_groove_params` (timing/random/velocity/quantization amounts and the global Groove amount).
+- **Note probability** (Remote Script): `add_notes_to_clip` now writes `probability`, `velocity_deviation` and `release_velocity` through Live 11+'s extended note API; before, they were dropped.
+
+### Verified in Live 12
+
+808 Core Kit mapped by pad names (Bass Drum, Closed/Open Hi Hat, Hand Clap, Maracas, Cow Bell...), a 4-bar rolling techno pattern with a Euclidean percussion layer and a roll fill written and read back (128/128 notes), a minimal techno pattern read back with its 49 probability notes, a Groove Pool groove applied to the clip.
+
 ## Remote Script 1.14.0
 
 ### Added
