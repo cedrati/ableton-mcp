@@ -4,6 +4,21 @@ Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-m
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.14.0
+
+### Added
+
+- **Music theory knowledge (server):** `music_scales` lists ~50 scales and modes (church modes, harmonic/melodic minor and their modes, harmonic major, double harmonic, pentatonics, blues, bebop, symmetric, Japanese, gamelan, flamenco) with character, characteristic note and typical styles, or details one in a key: spelled notes, degrees, diatonic seventh chords with roman numerals and functions, relative modes, Live's scale name. `music_styles` gives a style sheet for 24 styles (baroque to synthwave): tempo, metre, scales, harmonic language, progressions, groove and swing, bass, melody, arrangement, accompaniment patterns, Live devices. `music_chord_ideas` suggests reharmonisations (tritone substitution, ii-V, relatives, borrowed chords).
+- **`analyze_clip_music`:** key/mode detection (Krumhansl-Kessler profiles refined by scale coverage, tonic weight and harmony: a V7 points to its tonic, a final dominant is a half cadence; long held notes are capped so a Picardy third doesn't turn a minor piece major), chords per segment with roman numerals in a `basic` (triads and sevenths, for classical/pop/counterpoint) or `jazz` vocabulary, out-of-scale notes, range, rhythm and top-line motion.
+- **`transform_clip`:** chains operations on a clip, in place or into an empty slot: transpose (chromatic or diatonic), change_mode, snap_to_scale, invert (chromatic or diatonic), retrograde, time_scale, quantize, swing, humanize, accent, articulate, fold_range, harmonize (diatonic parallel voices), arpeggiate, strum, voice_chords (close, drop 2, open, spread).
+- **`write_progression`:** roman numerals (secondary dominants, borrowed chords, Neapolitan) or a style's progression, voiced with smooth voice leading and played with an accompaniment pattern (block, pulse, offbeat, arpeggios, Alberti bass, bossa, waltz, ballad, stabs), with a bass line.
+- **Live's song scale (Remote Script):** `get_song_scale` / `set_song_scale` (root, scale, Scale Mode), mapping this server's scale names to Live's.
+- **Parameter display (Remote Script):** `get_device_parameters` and `set_device_parameter` report Live's display string ("Bell", "1.56 kHz", "-6.0 dB") and, for list parameters, their value names, instead of bare normalised numbers.
+
+### Verified in Live 12
+
+Song scale set to C harmonic minor; a fugue analysed as C minor with its circle-of-fifths episode (iv-bVII-bIII-bVI) and V7-I ending; a jazz progression written in Bb (Imaj7-vi7-ii7-V7), re-voiced in drop 2, arpeggiated, swung into another slot and analysed back; EQ Eight filter types read as named values.
+
 ## Remote Script 1.13.0
 
 ### Added
