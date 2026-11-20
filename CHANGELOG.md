@@ -1,8 +1,8 @@
 # Changelog
 
-Changes in the extended edition by Olivier Cedrati ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp), branch `feat/mixer-scenes`) relative to the original [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp).
+Changes in Ableton Studio MCP by Olivier Cedrati ([cedrati/ableton-studio-mcp](https://github.com/cedrati/ableton-studio-mcp), branch `feat/mixer-scenes`; formerly cedrati/ableton-mcp) relative to the original [ahujasid/ableton-mcp](https://github.com/ahujasid/ableton-mcp).
 
-The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
+The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-studio-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
 ## Remote Script 1.16.0
 
