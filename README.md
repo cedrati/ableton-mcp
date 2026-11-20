@@ -1,19 +1,19 @@
 <div align="center">
 
-<img src="docs/social-preview.png" alt="Ableton MCP Extended Edition — AI music production in Ableton Live with Claude: compose, arrange, mix, master, listen, music theory, techno drums" width="100%">
+<img src="docs/social-preview.png" alt="Ableton Studio MCP — AI music production in Ableton Live with Claude: compose, arrange, mix, master, listen, music theory, techno drums" width="100%">
 
-# Ableton MCP — Extended Edition
+# Ableton Studio MCP
 
 **The Ableton Live MCP server that lets Claude (or any MCP client) compose, arrange, mix, master, listen to and analyse music in Ableton Live 11 & 12.**
 
-An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)).
+By **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)) — built on [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by Siddharth Ahuja.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Remote Script](https://img.shields.io/badge/Remote%20Script-1.16.0-blue)
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
-[![Tests](https://github.com/cedrati/ableton-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/cedrati/ableton-mcp/actions/workflows/tests.yml)
+[![Tests](https://github.com/cedrati/ableton-studio-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/cedrati/ableton-studio-mcp/actions/workflows/tests.yml)
 
-[Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [FAQ](#faq) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
+[Quickstart](#quickstart) · [Features](#features) · [Tools](#tool-reference) · [FAQ](#faq) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-studio-mcp/issues)
 
 </div>
 
@@ -25,11 +25,11 @@ An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by
 
 [Ableton MCP](https://github.com/ahujasid/ableton-mcp), created by Siddharth Ahuja, connects Ableton Live to AI assistants through the [Model Context Protocol](https://modelcontextprotocol.io): the assistant can create tracks and clips, write notes, load devices and drive the transport.
 
-**This edition, written and maintained by Olivier Cedrati, turns it into a full production assistant.** Beyond writing notes, the assistant can mix (faders, sends, return and main-track effects, routing), **listen** to the result and judge it like a mastering engineer (LUFS, true peak, tonal balance, stereo, a spectrogram it can look at), and compose with real music-theory knowledge (scales and modes, style sheets, key and chord analysis, clip transformations, voice-led progressions).
+**Ableton Studio MCP, written and maintained by Olivier Cedrati, builds on it and turns it into a full production assistant.** Beyond writing notes, the assistant can mix (faders, sends, return and main-track effects, routing), **listen** to the result and judge it like a mastering engineer (LUFS, true peak, tonal balance, stereo, a spectrogram it can look at), and compose with real music-theory knowledge (scales and modes, style sheets, key and chord analysis, clip transformations, voice-led progressions).
 
-It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp). The `ableton-mcp` package on PyPI is the **original** project and does not include any of this — install from this repository as shown below.
+It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-studio-mcp](https://github.com/cedrati/ableton-studio-mcp). The `ableton-mcp` package on PyPI is the **original** project and does not include any of this — install Ableton Studio MCP from this repository as shown below. (The commands `ableton-mcp` and `ableton-mcp-install-script` still work as aliases of the new ones.)
 
-## What this edition adds
+## Features
 
 | Area | What the assistant can do |
 |---|---|
@@ -65,7 +65,7 @@ Python (3.10+) and the dependencies, including `numpy`, are installed automatica
 <summary><b>Claude Code</b></summary>
 
 ```bash
-claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp
+claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/ableton-studio-mcp@feat/mixer-scenes ableton-studio-mcp
 ```
 </details>
 
@@ -77,7 +77,7 @@ claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/able
   "mcpServers": {
     "AbletonMCP": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes", "ableton-mcp"]
+      "args": ["--from", "git+https://github.com/cedrati/ableton-studio-mcp@feat/mixer-scenes", "ableton-mcp"]
     }
   }
 }
@@ -88,7 +88,7 @@ claude mcp add ableton -s user -- uvx --from git+https://github.com/cedrati/able
 <summary><b>Cursor</b> — Settings → MCP, as a command</summary>
 
 ```
-uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp
+uvx --from git+https://github.com/cedrati/ableton-studio-mcp@feat/mixer-scenes ableton-studio-mcp
 ```
 </details>
 
@@ -97,7 +97,7 @@ Run the server in **one** client at a time.
 ### 2. Install the Remote Script into Live
 
 ```bash
-uvx --from git+https://github.com/cedrati/ableton-mcp@feat/mixer-scenes ableton-mcp-install-script
+uvx --from git+https://github.com/cedrati/ableton-studio-mcp@feat/mixer-scenes ableton-studio-mcp-install-script
 ```
 
 This copies the script into your User Library's `Remote Scripts/AbletonMCP` folder (found from Live's own settings; `--list-targets` shows where it would go, `--target <folder>` forces a location). A previous version is kept as `__init__.py.bak`.
@@ -117,7 +117,7 @@ Ask the assistant to run `get_remote_script_info`. It should report `script_vers
 
 1. Re-run the install command of step 2.
 2. **Restart Live** — re-selecting the control surface does not reload the code.
-3. Restart your MCP client. If it still runs old code: `uv cache clean ableton-mcp` (with the client closed).
+3. Restart your MCP client. If it still runs old code: `uv cache clean ableton-studio-mcp` (with the client closed).
 
 ---
 
@@ -270,7 +270,7 @@ Live's API doesn't let a script save the set, export audio, create group tracks,
 | Problem | Fix |
 |---|---|
 | `up_to_date: false`, or "missing capability" errors | The script in Live is older than the server. Re-run the install command, then **restart Live**. |
-| The server still runs old code after an update | Restart the MCP client; if needed `uv cache clean ableton-mcp` with the client closed. |
+| The server still runs old code after an update | Restart the MCP client; if needed `uv cache clean ableton-studio-mcp` with the client closed. |
 | No connection | Check that **AbletonMCP** is selected as a Control Surface and that only one MCP client runs the server. |
 | Timeouts on big requests | Ask for the work in smaller steps. |
 
@@ -289,10 +289,10 @@ MCP client (Claude…)  ⇄  MCP server (MCP_Server/, Python)  ⇄  TCP 127.0.0.
 ### Development
 
 ```bash
-git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-mcp
-cd ableton-mcp
+git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-studio-mcp
+cd ableton-studio-mcp
 uv run --with pytest pytest -q          # 262 tests, no Live needed
-uv run ableton-mcp-install-script       # install your working copy into Live
+uv run ableton-studio-mcp-install-script       # install your working copy into Live
 ```
 
 When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`, and the package `version` in `pyproject.toml`, which follows the script), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md). GitHub Actions runs the tests on Python 3.10, 3.12 and 3.13 and checks the bundled copy on every push and pull request.
@@ -308,6 +308,6 @@ The original project includes optional telemetry (anonymous tool usage) and an o
 ## Credits and license
 
 - **Original project:** [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by [Siddharth Ahuja](https://x.com/sidahuj).
-- **Extended edition:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, clip editing, MIDI import and reliability work. Report issues about this edition on [cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp/issues).
+- **Ableton Studio MCP:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, clip editing, MIDI import and reliability work. Report issues on [cedrati/ableton-studio-mcp](https://github.com/cedrati/ableton-studio-mcp/issues).
 
-MIT License — Copyright (c) 2026 Olivier Cedrati; portions Copyright (c) 2025 Siddharth Ahuja (original ableton-mcp, on which this edition is built). See [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.
+MIT License — Copyright (c) 2026 Olivier Cedrati; portions Copyright (c) 2025 Siddharth Ahuja (original ableton-mcp, on which Ableton Studio MCP is built). See [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.
