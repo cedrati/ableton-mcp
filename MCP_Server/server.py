@@ -3,6 +3,7 @@ from mcp.server.fastmcp import FastMCP, Context
 import socket
 import json
 import logging
+import math
 import os
 import threading
 from dataclasses import dataclass, field
@@ -467,20 +468,49 @@ def get_remote_script_info(ctx: Context, user_prompt: str = "") -> str:
         logger.error(f"Error getting remote script info: {str(e)}")
         return f"Error getting remote script info: {str(e)}"
 
+def _apply_track_type(params: Dict[str, Any], track_type: str) -> Union[str, None]:
+    """Add track_type to the command params for a return or the main track.
+
+    An older Remote Script would ignore track_type and act on the regular
+    track with the same index, so refuse unless it advertises
+    return_master_devices. Returns an error message, or None when fine.
+    """
+    track_type = (track_type or "track").lower()
+    if track_type not in ("track", "return", "master"):
+        return "track_type must be 'track', 'return' or 'master'"
+    if track_type == "track":
+        return None
+    from .script_handshake import require_capability
+
+    missing = require_capability("return_master_devices")
+    if missing:
+        return missing
+    params["track_type"] = track_type
+    return None
+
+
 @mcp.tool()
 @telemetry_tool("get_track_info")
 @trajectory_tool("get_track_info")
-def get_track_info(ctx: Context, track_index: int, user_prompt: str = "") -> str:
+def get_track_info(ctx: Context, track_index: int, track_type: str = "track",
+                   user_prompt: str = "") -> str:
     """
-    Get detailed information about a specific track in Ableton.
+    Get detailed information about a track, a return track or the main track
+    (name, mixer state, clip slots, device chain).
 
     Parameters:
-    - track_index: The index of the track to get information about
+    - track_index: Index of the track (index among return tracks for "return",
+      ignored for "master")
+    - track_type: "track" (default), "return" or "master"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
+        params: Dict[str, Any] = {"track_index": track_index}
+        missing = _apply_track_type(params, track_type)
+        if missing:
+            return missing
         ableton = get_ableton_connection()
-        result = ableton.send_command("get_track_info", {"track_index": track_index})
+        result = ableton.send_command("get_track_info", params)
         return json.dumps(result, indent=2)
     except Exception as e:
         logger.error(f"Error getting track info from Ableton: {str(e)}")
@@ -557,22 +587,26 @@ def get_device_parameters(
     ctx: Context,
     track_index: int,
     device_index: int,
+    track_type: str = "track",
     user_prompt: str = "",
 ) -> str:
     """
     Read all parameters for a device on a track (name, value, min, max).
 
     Parameters:
-    - track_index: Track that owns the device
+    - track_index: Track that owns the device (index among return tracks for
+      "return", ignored for "master")
     - device_index: Index into the track's device chain
+    - track_type: "track" (default), "return" or "master"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
+        params: Dict[str, Any] = {"track_index": track_index, "device_index": device_index}
+        missing = _apply_track_type(params, track_type)
+        if missing:
+            return missing
         ableton = get_ableton_connection()
-        result = ableton.send_command(
-            "get_device_parameters",
-            {"track_index": track_index, "device_index": device_index},
-        )
+        result = ableton.send_command("get_device_parameters", params)
         return json.dumps(result, indent=2)
     except Exception as e:
         logger.error(f"Error getting device parameters: {str(e)}")
@@ -588,6 +622,7 @@ def set_device_parameter(
     device_index: int,
     parameter_index: int,
     value: float,
+    track_type: str = "track",
     user_prompt: str = "",
 ) -> str:
     """
@@ -596,23 +631,26 @@ def set_device_parameter(
     Use get_device_parameters first to discover parameter indices and ranges.
 
     Parameters:
-    - track_index: Track that owns the device
+    - track_index: Track that owns the device (index among return tracks for
+      "return", ignored for "master")
     - device_index: Index into the track's device chain
     - parameter_index: Index into device.parameters
     - value: New parameter value (Live parameter units)
+    - track_type: "track" (default), "return" or "master"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
+        params: Dict[str, Any] = {
+            "track_index": track_index,
+            "device_index": device_index,
+            "parameter_index": parameter_index,
+            "value": value,
+        }
+        missing = _apply_track_type(params, track_type)
+        if missing:
+            return missing
         ableton = get_ableton_connection()
-        result = ableton.send_command(
-            "set_device_parameter",
-            {
-                "track_index": track_index,
-                "device_index": device_index,
-                "parameter_index": parameter_index,
-                "value": value,
-            },
-        )
+        result = ableton.send_command("set_device_parameter", params)
         return (
             f"Set {result.get('name', 'parameter')} "
             f"{result.get('old_value')} → {result.get('value')}"
@@ -978,21 +1016,32 @@ def set_tempo(ctx: Context, tempo: float, user_prompt: str = "") -> str:
 @mcp.tool()
 @rich_telemetry_tool("load_instrument_or_effect")
 @trajectory_tool("load_instrument_or_effect")
-def load_instrument_or_effect(ctx: Context, track_index: int, uri: str, user_prompt: str = "") -> str:
+def load_instrument_or_effect(ctx: Context, track_index: int, uri: str,
+                              track_type: str = "track", user_prompt: str = "") -> str:
     """
-    Load an instrument or effect onto a track using its URI.
+    Load an instrument, effect, preset, plugin or User Library item onto a
+    track using its browser URI. Audio effects can go on a return track or the
+    main track: use track_type="return" (track_index = return index, 0 = A)
+    or track_type="master". Plugins (VST/AU) and User Library items are found
+    with get_browser_items_at_path("plugins/...") or ("user_library/...").
 
     Parameters:
-    - track_index: The index of the track to load the instrument on
+    - track_index: The index of the track to load onto (return index for
+      "return", ignored for "master")
     - uri: The URI of the instrument or effect to load (e.g., 'query:Synths#Instrument%20Rack:Bass:FileId_5116')
+    - track_type: "track" (default), "return" or "master"
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
+        params: Dict[str, Any] = {"track_index": track_index, "item_uri": uri}
+        missing = _apply_track_type(params, track_type)
+        if missing:
+            return missing
+        target = (f"track {track_index}" if (track_type or "track").lower() == "track"
+                  else "main track" if track_type.lower() == "master"
+                  else f"return track {track_index}")
         ableton = get_ableton_connection()
-        result = ableton.send_command("load_browser_item", {
-            "track_index": track_index,
-            "item_uri": uri
-        })
+        result = ableton.send_command("load_browser_item", params)
         
         # Check if the instrument was loaded successfully
         if result.get("loaded", False):
@@ -1000,20 +1049,20 @@ def load_instrument_or_effect(ctx: Context, track_index: int, uri: str, user_pro
             devices = result.get("devices_after", [])
             if result.get("in_place"):
                 if result.get("settled"):
-                    return (f"Reloaded '{uri}' in place on track {track_index}: "
+                    return (f"Reloaded '{uri}' in place on {target}: "
                             f"Live kept the existing device and reset its parameters")
-                return (f"Requested reload of '{uri}' on track {track_index}. Live "
+                return (f"Requested reload of '{uri}' on {target}. Live "
                         f"reloads an identical device in place, and no parameter "
                         f"changed (they may already be at their defaults). "
                         f"Devices on track: {', '.join(devices) or 'none'}")
             if new_devices:
-                return f"Loaded instrument with URI '{uri}' on track {track_index}. New devices: {', '.join(new_devices)}"
+                return f"Loaded instrument with URI '{uri}' on {target}. New devices: {', '.join(new_devices)}"
             elif result.get("settled") is False:
-                return (f"Requested load of '{uri}' on track {track_index}, but Live "
+                return (f"Requested load of '{uri}' on {target}, but Live "
                         f"had not changed the device chain yet. Devices on track: "
                         f"{', '.join(devices) or 'none'}. Check with get_track_info.")
             else:
-                return f"Loaded instrument with URI '{uri}' on track {track_index}. Devices on track: {', '.join(devices) or 'none'}"
+                return f"Loaded instrument with URI '{uri}' on {target}. Devices on track: {', '.join(devices) or 'none'}"
         else:
             return f"Failed to load instrument with URI '{uri}'"
     except Exception as e:
@@ -1654,7 +1703,9 @@ def get_browser_tree(ctx: Context, category_type: str = "all", user_prompt: str 
     Get a hierarchical tree of browser categories from Ableton.
 
     Parameters:
-    - category_type: Type of categories to get ('all', 'instruments', 'sounds', 'drums', 'audio_effects', 'midi_effects')
+    - category_type: Type of categories to get ('all', 'instruments', 'sounds', 'drums',
+      'audio_effects', 'midi_effects', or any other browser root Live exposes, such as
+      'plugins' (VST/AU), 'user_library', 'packs', 'samples', 'max_for_live', 'current_project')
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
@@ -1721,7 +1772,9 @@ def get_browser_items_at_path(ctx: Context, path: str, user_prompt: str = "") ->
 
     Parameters:
     - path: Path in the format "category/folder/subfolder"
-            where category is one of the available browser categories in Ableton
+            where category is one of the available browser categories in Ableton:
+            instruments, sounds, drums, audio_effects, midi_effects, plugins (VST/AU),
+            user_library, packs, samples, max_for_live, current_project
     - user_prompt: The original user prompt that led to this tool call (for telemetry)
     """
     try:
@@ -2174,6 +2227,491 @@ def record_audition(
         logger.error(f"Error recording audition: {str(e)}")
         return f"Error recording audition: {str(e)}"
 
+
+# ───────────────────────────── Routing ──────────────────────────────
+
+@mcp.tool()
+@telemetry_tool("get_track_routing")
+@trajectory_tool("get_track_routing")
+def get_track_routing(ctx: Context, track_index: int, track_type: str = "track",
+                      user_prompt: str = "") -> str:
+    """
+    Read a track's input/output routing and monitoring, with the options Live
+    offers for each (names as shown in Live's I/O section, in Live's language).
+
+    Parameters:
+    - track_index: Index of the track (return index for "return", ignored for "master")
+    - track_type: "track" (default), "return" or "master" (these two only have an output)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("get_track_routing")
+        if missing:
+            return missing
+        params: Dict[str, Any] = {"track_index": track_index}
+        missing = _apply_track_type(params, track_type)
+        if missing:
+            return missing
+        result = get_ableton_connection().send_command("get_track_routing", params)
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error getting track routing: {str(e)}")
+        return f"Error getting track routing: {str(e)}"
+
+
+@mcp.tool()
+@rich_telemetry_tool("set_track_routing")
+@trajectory_tool("set_track_routing")
+def set_track_routing(
+    ctx: Context,
+    track_index: int,
+    input_type: str = None,
+    input_channel: str = None,
+    output_type: str = None,
+    output_channel: str = None,
+    monitoring: str = None,
+    track_type: str = "track",
+    user_prompt: str = "",
+) -> str:
+    """
+    Set a track's input/output routing and monitoring. Arguments left out are
+    untouched. Names are matched against the options get_track_routing lists:
+    exact (case-insensitive) first, else a unique substring.
+
+    Examples:
+    - Layer one MIDI part on several instruments: on each extra MIDI track,
+      input_type="<name of the source MIDI track>", monitoring="in".
+    - Record the main output (resampling): on an audio track,
+      input_type="Resampling" (French Live: "Rééchantillonnage").
+    - Send a track to a return or another track: output_type="<track name>".
+
+    Parameters:
+    - track_index: Index of the track (return index for "return")
+    - input_type / input_channel: Input routing ("MIDI From" / "Audio From")
+    - output_type / output_channel: Output routing ("MIDI To" / "Audio To")
+    - monitoring: "in", "auto" or "off"
+    - track_type: "track" (default), "return" or "master" (output only)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("set_track_routing")
+        if missing:
+            return missing
+        params: Dict[str, Any] = {"track_index": track_index}
+        for key, value in (("input_type", input_type), ("input_channel", input_channel),
+                           ("output_type", output_type), ("output_channel", output_channel),
+                           ("monitoring", monitoring)):
+            if value is not None:
+                params[key] = value
+        missing = _apply_track_type(params, track_type)
+        if missing:
+            return missing
+        result = get_ableton_connection().send_command("set_track_routing", params)
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error setting track routing: {str(e)}")
+        return f"Error setting track routing: {str(e)}"
+
+
+# ─────────────────────── Recording / listening ──────────────────────
+
+# Extra time allowed past the expected end of a recording.
+RECORDING_MARGIN_S = 5.0
+RECORDING_POLL_S = 0.5
+
+
+def _wait_for_recording(ableton, expected_s: float, max_wait_s: float) -> Dict[str, Any]:
+    """Poll get_recording_status until the watcher in Live has finished."""
+    import time
+
+    deadline = time.monotonic() + min(expected_s + RECORDING_MARGIN_S, max_wait_s)
+    status: Dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        status = ableton.send_command("get_recording_status")
+        rec = status.get("recording") or {}
+        if rec.get("finished"):
+            return status
+        time.sleep(RECORDING_POLL_S)
+    ableton.send_command("stop_arrangement_recording")
+    status = ableton.send_command("get_recording_status")
+    status["timed_out"] = True
+    return status
+
+
+@mcp.tool()
+@rich_telemetry_tool("record_arrangement")
+@trajectory_tool("record_arrangement")
+def record_arrangement(
+    ctx: Context,
+    start_time: float,
+    end_time: float,
+    wait: bool = True,
+    max_wait_seconds: float = 600.0,
+    user_prompt: str = "",
+) -> str:
+    """
+    Record the armed tracks into the Arrangement between two song positions
+    (in beats): moves the playhead, turns Arrangement Record on, plays, and
+    stops at end_time. Arm tracks first (set_track_arm).
+
+    Parameters:
+    - start_time: Song position to start at (beats)
+    - end_time: Song position to stop at (beats)
+    - wait: Block until the recording ends (default) or return at once
+      (then poll get_recording_status)
+    - max_wait_seconds: Safety limit when waiting; recording is stopped past it
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("record_arrangement")
+        if missing:
+            return missing
+        ableton = get_ableton_connection()
+        tempo = float(ableton.send_command("get_session_info").get("tempo") or 120.0)
+        result = ableton.send_command(
+            "record_arrangement", {"start_time": start_time, "end_time": end_time})
+        if not wait:
+            return json.dumps(result, indent=2, ensure_ascii=False)
+        expected = (end_time - start_time) * 60.0 / tempo
+        status = _wait_for_recording(ableton, expected, max_wait_seconds)
+        return json.dumps(status, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error recording arrangement: {str(e)}")
+        return f"Error recording arrangement: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("get_recording_status")
+def get_recording_status(ctx: Context, user_prompt: str = "") -> str:
+    """
+    State of the current or last record_arrangement run (finished, reason,
+    stop position), plus Arrangement Record, transport and armed tracks.
+
+    Parameters:
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("get_recording_status")
+        if missing:
+            return missing
+        result = get_ableton_connection().send_command("get_recording_status")
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error getting recording status: {str(e)}")
+        return f"Error getting recording status: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("stop_arrangement_recording")
+def stop_arrangement_recording(ctx: Context, user_prompt: str = "") -> str:
+    """
+    Stop a running record_arrangement now (turns Arrangement Record off and
+    stops playback).
+
+    Parameters:
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("stop_arrangement_recording")
+        if missing:
+            return missing
+        result = get_ableton_connection().send_command("stop_arrangement_recording")
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error stopping recording: {str(e)}")
+        return f"Error stopping recording: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("get_audio_clip_file")
+def get_audio_clip_file(ctx: Context, track_index: int, clip_index: int,
+                        location: str = "arrangement", user_prompt: str = "") -> str:
+    """
+    Path of the audio file behind an audio clip (for example a take just
+    recorded with record_arrangement), with its length and sample rate.
+
+    Parameters:
+    - track_index: Track that owns the clip
+    - clip_index: Arrangement clip index (get_arrangement_clips) or Session slot
+    - location: "arrangement" (default) or "session"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .script_handshake import require_capability
+
+        missing = require_capability("get_audio_clip_file")
+        if missing:
+            return missing
+        result = get_ableton_connection().send_command("get_audio_clip_file", {
+            "track_index": track_index, "clip_index": clip_index,
+            "location": (location or "arrangement").lower()})
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error getting audio clip file: {str(e)}")
+        return f"Error getting audio clip file: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("analyze_audio_file")
+def analyze_audio_file(ctx: Context, file_path: str, segment_seconds: float = 1.0,
+                       user_prompt: str = "") -> str:
+    """
+    Measure a WAV or AIFF file: peak and RMS levels (dBFS), clipping, crest
+    factor, loudness over time (one value per segment), leading/trailing
+    silence, stereo correlation and a coarse spectral balance (low < 250 Hz,
+    mid, high > 4 kHz), with warnings. Use it to check a mix or a recorded take.
+
+    Parameters:
+    - file_path: Absolute path of the audio file
+    - segment_seconds: Length of each loudness segment (default 1 s)
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .audio_analysis import analyze_audio
+
+        result = analyze_audio(os.path.expanduser(file_path), segment_seconds=segment_seconds)
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error analyzing audio file: {str(e)}")
+        return f"Error analyzing audio file: {str(e)}"
+
+
+RESAMPLING_NAMES = ("resampling", "rééchantillonnage", "reechantillonnage",
+                    "resampling", "neu-sampling", "remuestreo", "ricampionamento")
+
+
+def _resampling_input_name(routing: Dict[str, Any]) -> Union[str, None]:
+    """The localized name Live gives the Resampling input."""
+    options = (routing.get("input") or {}).get("available_types") or []
+    for name in options:
+        low = (name or "").lower()
+        if any(key in low for key in RESAMPLING_NAMES) or "sampl" in low:
+            return name
+    return None
+
+
+@mcp.tool()
+@rich_telemetry_tool("listen_to_arrangement")
+@trajectory_tool("listen_to_arrangement")
+def listen_to_arrangement(
+    ctx: Context,
+    start_time: float,
+    end_time: float,
+    keep_track: bool = False,
+    segment_seconds: float = 1.0,
+    max_wait_seconds: float = 600.0,
+    user_prompt: str = "",
+) -> str:
+    """
+    "Listen" to the song: record the main output between two song positions
+    (beats) onto a temporary resampling audio track, then analyze the take
+    (levels, clipping, loudness over time, stereo, spectral balance).
+    Plays the song in real time, so it takes as long as the passage.
+
+    Parameters:
+    - start_time: Song position to start at (beats)
+    - end_time: Song position to stop at (beats); add a few beats to hear reverb tails
+    - keep_track: Keep the recording track in the set (default: delete it;
+      the audio file stays in the project's Samples/Recorded folder)
+    - segment_seconds: Length of each loudness segment in the analysis
+    - max_wait_seconds: Safety limit for the recording
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    from .script_handshake import require_capability
+
+    for cap in ("set_track_routing", "record_arrangement", "get_audio_clip_file"):
+        missing = require_capability(cap)
+        if missing:
+            return missing
+    ableton = get_ableton_connection()
+    track_index = None
+    armed_before = []
+    try:
+        session = ableton.send_command("get_session_info")
+        tempo = float(session.get("tempo") or 120.0)
+        # Only the listening track may record: disarm the others for the take.
+        status = ableton.send_command("get_recording_status")
+        armed_before = [t["index"] for t in status.get("armed_tracks", [])]
+        for idx in armed_before:
+            ableton.send_command("set_track_arm", {"track_index": idx, "arm": False})
+
+        created = ableton.send_command("create_audio_track", {"index": -1})
+        track_index = int(created["index"])
+        ableton.send_command("set_track_name", {"track_index": track_index,
+                                                "name": "Claude – écoute"})
+        routing = ableton.send_command("get_track_routing", {"track_index": track_index})
+        resampling = _resampling_input_name(routing)
+        if not resampling:
+            raise RuntimeError("No Resampling input found among: %s"
+                               % (routing.get("input") or {}).get("available_types"))
+        ableton.send_command("set_track_routing", {
+            "track_index": track_index, "input_type": resampling, "monitoring": "off"})
+        ableton.send_command("set_track_arm", {"track_index": track_index, "arm": True})
+
+        ableton.send_command("record_arrangement",
+                             {"start_time": start_time, "end_time": end_time})
+        expected = (end_time - start_time) * 60.0 / tempo
+        rec_status = _wait_for_recording(ableton, expected, max_wait_seconds)
+        ableton.send_command("set_track_arm", {"track_index": track_index, "arm": False})
+
+        clips = ableton.send_command("get_arrangement_clips",
+                                     {"track_index": track_index}).get("clips", [])
+        if not clips:
+            raise RuntimeError("Nothing was recorded (status: %s)" % json.dumps(rec_status))
+        file_info = ableton.send_command("get_audio_clip_file", {
+            "track_index": track_index, "clip_index": len(clips) - 1,
+            "location": "arrangement"})
+        path = file_info.get("file_path")
+        if not path:
+            raise RuntimeError("Live did not report the recorded file's path")
+
+        from .audio_analysis import analyze_audio
+        import time
+
+        # Live finishes writing the file just after recording stops.
+        analysis, last_error = None, None
+        for _ in range(10):
+            try:
+                analysis = analyze_audio(path, segment_seconds=segment_seconds)
+                break
+            except Exception as e:  # file still being finalised
+                last_error = e
+                time.sleep(0.5)
+        if analysis is None:
+            raise RuntimeError("Could not read the recorded file: %s" % last_error)
+
+        result = {
+            "recorded": {"start_time": start_time, "end_time": end_time,
+                         "file_path": path, "status": rec_status.get("recording")},
+            "analysis": analysis,
+        }
+        if not keep_track:
+            ableton.send_command("delete_track", {"track_index": track_index})
+            result["recorded"]["track"] = "deleted (file kept)"
+            track_index = None
+        else:
+            result["recorded"]["track_index"] = track_index
+        return json.dumps(result, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Error listening to arrangement: {str(e)}")
+        if track_index is not None and not keep_track:
+            try:
+                ableton.send_command("stop_arrangement_recording")
+                ableton.send_command("delete_track", {"track_index": track_index})
+            except Exception:
+                pass
+        return f"Error listening to arrangement: {str(e)}"
+    finally:
+        for idx in armed_before:
+            try:
+                ableton.send_command("set_track_arm", {"track_index": idx, "arm": True})
+            except Exception:
+                pass
+
+
+# ─────────────────────────── MIDI files ─────────────────────────────
+
+ADD_NOTES_CHUNK = 1000
+
+
+@mcp.tool()
+@rich_telemetry_tool("import_midi_file")
+@trajectory_tool("import_midi_file")
+def import_midi_file(
+    ctx: Context,
+    file_path: str,
+    track_index: int = None,
+    clip_index: int = 0,
+    midi_track: int = None,
+    channel: int = None,
+    transpose: int = 0,
+    location: str = "session",
+    replace: bool = False,
+    clip_length: float = None,
+    user_prompt: str = "",
+) -> str:
+    """
+    Import the notes of a Standard MIDI File (.mid) into a clip. Without
+    track_index, only describes the file (tracks, note counts, channels,
+    length) so you can pick midi_track / channel first.
+
+    Session: an empty slot gets a new clip as long as the notes (rounded up to
+    a 4-beat bar) or clip_length; an existing clip receives the notes (after
+    clearing it when replace=True). Arrangement: the clip must exist
+    (index from get_arrangement_clips). Times are in beats; the file's tempo
+    is ignored.
+
+    Parameters:
+    - file_path: Absolute path of the .mid file
+    - track_index: Target MIDI track (omit to only describe the file)
+    - clip_index: Session slot, or Arrangement clip index
+    - midi_track: Track of the MIDI file to import (default: all, merged)
+    - channel: MIDI channel to keep, 0-15 (default: all)
+    - transpose: Semitones to add to every pitch
+    - location: "session" (default) or "arrangement"
+    - replace: Clear the target clip's notes first
+    - clip_length: Length in beats of a newly created Session clip
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from .midi_file import merge_duplicates, read_midi_file, select_notes, summarize
+
+        path = os.path.expanduser(file_path)
+        parsed = read_midi_file(path)
+        if track_index is None:
+            return json.dumps({"file": path, "format": parsed["format"],
+                               "ticks_per_beat": parsed["division"],
+                               "tracks": summarize(parsed)}, indent=2, ensure_ascii=False)
+        notes = select_notes(parsed, midi_track=midi_track, channel=channel,
+                             transpose=transpose)
+        if not notes:
+            return "No notes to import with these filters"
+        notes, merged = merge_duplicates(notes)
+        location = (location or "session").lower()
+        missing = _arrangement_notes_missing(location)
+        if missing:
+            return missing
+        ableton = get_ableton_connection()
+        created = False
+        if location == "session":
+            info = ableton.send_command("get_track_info", {"track_index": track_index})
+            slots = info.get("clip_slots", [])
+            if clip_index < 0 or clip_index >= len(slots):
+                return f"Clip slot {clip_index} out of range ({len(slots)} slots)"
+            if not slots[clip_index].get("has_clip"):
+                end = max(n["start_time"] + n["duration"] for n in notes)
+                length = clip_length or max(4.0, 4.0 * math.ceil(end / 4.0 - 1e-9))
+                ableton.send_command("create_clip", {"track_index": track_index,
+                                                     "clip_index": clip_index,
+                                                     "length": length})
+                created = True
+        if replace and not created:
+            ableton.send_command("clear_notes_from_clip",
+                                 _note_params(track_index, clip_index, location))
+        for i in range(0, len(notes), ADD_NOTES_CHUNK):
+            params = _note_params(track_index, clip_index, location)
+            params["notes"] = notes[i:i + ADD_NOTES_CHUNK]
+            ableton.send_command("add_notes_to_clip", params)
+        where = (f"new clip in slot {clip_index}" if created
+                 else f"{location} clip {clip_index}")
+        return (f"Imported {len(notes)} notes from {os.path.basename(path)} into "
+                f"{where} on track {track_index}"
+                + (" (replaced existing notes)" if replace and not created else "")
+                + (f"; {merged} duplicate note(s) (same pitch and start in two voices) "
+                   f"merged, as Live keeps one" if merged else ""))
+    except Exception as e:
+        logger.error(f"Error importing MIDI file: {str(e)}")
+        return f"Error importing MIDI file: {str(e)}"
 
 
 # Main execution

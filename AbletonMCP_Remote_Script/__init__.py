@@ -39,7 +39,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.11.0"
+SCRIPT_VERSION = "1.12.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -87,7 +87,22 @@ SCRIPT_CAPABILITIES = [
     "remove_notes",
     "get_clip_loop",
     "set_clip_loop",
+    # load_instrument_or_effect / get_track_info / get+set_device_parameter
+    # accept track_type="return" | "master".
+    "return_master_devices",
+    "get_track_routing",
+    "set_track_routing",
+    "record_arrangement",
+    "stop_arrangement_recording",
+    "get_recording_status",
+    "get_audio_clip_file",
 ]
+
+# Track.current_monitoring_state values.
+MONITORING_STATES = {0: "in", 1: "auto", 2: "off"}
+MONITORING_BY_NAME = dict((name, state) for state, name in MONITORING_STATES.items())
+# Polling interval (ticks, ~100 ms each) of the arrangement-recording watcher.
+RECORDING_POLL_TICKS = 1
 
 # Live's Clip.warp_mode values.
 WARP_MODE_NAMES = {
@@ -363,7 +378,17 @@ class AbletonMCP(ControlSurface):
                 response["result"] = self._get_session_info()
             elif command_type == "get_track_info":
                 track_index = params.get("track_index", 0)
-                response["result"] = self._get_track_info(track_index)
+                response["result"] = self._get_track_info(
+                    track_index, params.get("track_type", "track"))
+            elif command_type == "get_track_routing":
+                response["result"] = self._get_track_routing(
+                    params.get("track_index", 0), params.get("track_type", "track"))
+            elif command_type == "get_recording_status":
+                response["result"] = self._get_recording_status()
+            elif command_type == "get_audio_clip_file":
+                response["result"] = self._get_audio_clip_file(
+                    params.get("track_index", 0), params.get("clip_index", 0),
+                    params.get("location", "arrangement"))
             # Commands that modify Live's state should be scheduled on the main thread
             elif command_type in ["create_midi_track", "create_audio_track", "set_track_name",
                                  "create_clip", "create_audio_clip", "add_notes_to_clip", "set_clip_name",
@@ -390,7 +415,10 @@ class AbletonMCP(ControlSurface):
                                  # Warp / clip automation
                                  "set_clip_warp", "edit_warp_markers",
                                  "set_clip_automation",
-                                 "remove_notes", "set_clip_loop"]:
+                                 "remove_notes", "set_clip_loop",
+                                 # Routing / recording
+                                 "set_track_routing", "record_arrangement",
+                                 "stop_arrangement_recording"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -462,11 +490,13 @@ class AbletonMCP(ControlSurface):
                         elif command_type == "load_instrument_or_effect":
                             track_index = params.get("track_index", 0)
                             uri = params.get("uri", "")
-                            result = self._load_instrument_or_effect(track_index, uri)
+                            result = self._load_instrument_or_effect(
+                                track_index, uri, params.get("track_type", "track"))
                         elif command_type == "load_browser_item":
                             track_index = params.get("track_index", 0)
                             item_uri = params.get("item_uri", "")
-                            result = self._load_browser_item(track_index, item_uri)
+                            result = self._load_browser_item(
+                                track_index, item_uri, params.get("track_type", "track"))
                         # ── Arrangement view commands ──────────────────────────────
                         elif command_type == "switch_to_arrangement_view":
                             result = self._switch_to_arrangement_view()
@@ -580,6 +610,21 @@ class AbletonMCP(ControlSurface):
                                 interpolation=params.get("interpolation", "linear"),
                                 resolution=params.get("resolution", 0.25),
                                 clear_first=params.get("clear_first", True))
+                        elif command_type == "set_track_routing":
+                            result = self._set_track_routing(
+                                params.get("track_index", 0),
+                                params.get("track_type", "track"),
+                                input_type=params.get("input_type"),
+                                input_channel=params.get("input_channel"),
+                                output_type=params.get("output_type"),
+                                output_channel=params.get("output_channel"),
+                                monitoring=params.get("monitoring"))
+                        elif command_type == "record_arrangement":
+                            result = self._record_arrangement(
+                                params.get("start_time", 0.0),
+                                params.get("end_time"))
+                        elif command_type == "stop_arrangement_recording":
+                            result = self._stop_arrangement_recording()
 
                         if isinstance(result, _Deferred):
                             # Finishes on a later tick; it fills the queue itself.
@@ -648,7 +693,8 @@ class AbletonMCP(ControlSurface):
             elif command_type == "get_device_parameters":
                 track_index = params.get("track_index", 0)
                 device_index = params.get("device_index", 0)
-                response["result"] = self._get_device_parameters(track_index, device_index)
+                response["result"] = self._get_device_parameters(
+                    track_index, device_index, params.get("track_type", "track"))
             elif command_type == "get_session_snapshot":
                 include_notes = params.get("include_notes", True)
                 include_params = params.get("include_params", True)
@@ -686,6 +732,7 @@ class AbletonMCP(ControlSurface):
                             params.get("device_index", 0),
                             params.get("parameter_index", 0),
                             params.get("value", 0.0),
+                            params.get("track_type", "track"),
                         )
                         response_queue.put({"status": "success", "result": result})
                     except Exception as e:
@@ -770,17 +817,14 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error getting session info: " + str(e))
             raise
     
-    def _get_track_info(self, track_index):
-        """Get information about a track"""
+    def _get_track_info(self, track_index, track_type="track"):
+        """Get information about a track, a return track or the main track."""
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self._song.tracks[track_index]
-            
-            # Get clip slots
+            track, label = self._resolve_track(track_index, track_type)
+
+            # Get clip slots (return and main tracks have none)
             clip_slots = []
-            for slot_index, slot in enumerate(track.clip_slots):
+            for slot_index, slot in enumerate(self._safe_attr(track, "clip_slots", list, [])):
                 clip_info = None
                 if slot.has_clip:
                     clip = slot.clip
@@ -809,11 +853,13 @@ class AbletonMCP(ControlSurface):
             
             result = {
                 "index": track_index,
+                "track_type": (track_type or "track").lower(),
+                "label": label,
                 "name": track.name,
-                "is_audio_track": track.has_audio_input,
-                "is_midi_track": track.has_midi_input,
-                "mute": track.mute,
-                "solo": track.solo,
+                "is_audio_track": self._safe_attr(track, "has_audio_input", bool, False),
+                "is_midi_track": self._safe_attr(track, "has_midi_input", bool, False),
+                "mute": self._safe_attr(track, "mute", bool, False),
+                "solo": self._safe_attr(track, "solo", bool, False),
                 "arm": self._safe_arm(track),
                 "volume": track.mixer_device.volume.value,
                 "panning": track.mixer_device.panning.value,
@@ -2246,7 +2292,7 @@ class AbletonMCP(ControlSurface):
     
     
     
-    def _load_instrument_or_effect(self, track_index, uri):
+    def _load_instrument_or_effect(self, track_index, uri, track_type="track"):
         """Load an instrument or effect onto a track by its browser URI.
 
         The command dispatcher above calls this method, but it was never
@@ -2256,16 +2302,15 @@ class AbletonMCP(ControlSurface):
         _load_browser_item does, so delegate to it; the only difference is the
         parameter name the MCP server uses ("uri" vs "item_uri").
         """
-        return self._load_browser_item(track_index, uri)
+        return self._load_browser_item(track_index, uri, track_type)
 
-    def _load_browser_item(self, track_index, item_uri):
-        """Load a browser item onto a track by its URI"""
+    def _load_browser_item(self, track_index, item_uri, track_type="track"):
+        """Load a browser item onto a track, a return track or the main track
+        by its URI. Live inserts it on the selected track, so the target is
+        selected first; that works for return and main tracks too."""
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-            
-            track = self._song.tracks[track_index]
-            
+            track, _ = self._resolve_track(track_index, track_type)
+
             # Access the application's browser instance instead of creating a new one
             app = self.application()
             
@@ -3212,16 +3257,15 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error getting clip notes: " + str(e))
             raise
 
-    def _get_device_parameters(self, track_index, device_index):
+    def _get_device_parameters(self, track_index, device_index, track_type="track"):
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-            track = self._song.tracks[track_index]
+            track, _ = self._resolve_track(track_index, track_type)
             if device_index < 0 or device_index >= len(track.devices):
                 raise IndexError("Device index out of range")
             device = track.devices[device_index]
             return {
                 "track_index": track_index,
+                "track_type": (track_type or "track").lower(),
                 "device": self._serialize_device(device, device_index, include_params=True),
             }
         except Exception as e:
@@ -3304,11 +3348,10 @@ class AbletonMCP(ControlSurface):
             self.log_message("Error getting session snapshot: " + str(e))
             raise
 
-    def _set_device_parameter(self, track_index, device_index, parameter_index, value):
+    def _set_device_parameter(self, track_index, device_index, parameter_index, value,
+                              track_type="track"):
         try:
-            if track_index < 0 or track_index >= len(self._song.tracks):
-                raise IndexError("Track index out of range")
-            track = self._song.tracks[track_index]
+            track, _ = self._resolve_track(track_index, track_type)
             if device_index < 0 or device_index >= len(track.devices):
                 raise IndexError("Device index out of range")
             device = track.devices[device_index]
@@ -3330,6 +3373,202 @@ class AbletonMCP(ControlSurface):
         except Exception as e:
             self.log_message("Error setting device parameter: " + str(e))
             raise
+
+    # ------------------------------------------------------------- routing
+    @staticmethod
+    def _routing_name(obj):
+        return getattr(obj, "display_name", None) if obj is not None else None
+
+    def _routing_side(self, track, side):
+        """Current and available routing types/channels for "input" or "output"."""
+        info = {}
+        for kind in ("type", "channel"):
+            current = self._safe_attr(track, "%s_routing_%s" % (side, kind))
+            available = self._safe_attr(track, "available_%s_routing_%ss" % (side, kind), list, [])
+            info[kind] = self._routing_name(current)
+            info["available_%ss" % kind] = [self._routing_name(o) for o in available]
+        return info
+
+    def _get_track_routing(self, track_index, track_type="track"):
+        """Input/output routing and monitoring of a track (Live 11+)."""
+        track, label = self._resolve_track(track_index, track_type)
+        result = {
+            "track": label,
+            "name": track.name,
+            "output": self._routing_side(track, "output"),
+        }
+        if (track_type or "track").lower() == "track":
+            result["input"] = self._routing_side(track, "input")
+            state = self._safe_attr(track, "current_monitoring_state", int, None)
+            result["monitoring"] = MONITORING_STATES.get(state)
+            result["can_be_armed"] = self._safe_attr(track, "can_be_armed", bool, False)
+        return result
+
+    @staticmethod
+    def _match_routing(options, wanted, what):
+        """Pick the routing option whose display_name matches ``wanted``:
+        exact (case-insensitive) first, else a unique substring match."""
+        wanted_l = str(wanted).strip().lower()
+        names = [getattr(o, "display_name", "") for o in options]
+        for opt, name in zip(options, names):
+            if name.lower() == wanted_l:
+                return opt
+        partial = [opt for opt, name in zip(options, names) if wanted_l in name.lower()]
+        if len(partial) == 1:
+            return partial[0]
+        raise ValueError("%s '%s' not found%s. Available: %s" % (
+            what, wanted, " (ambiguous)" if partial else "", ", ".join(names)))
+
+    def _set_track_routing(self, track_index, track_type="track", input_type=None,
+                           input_channel=None, output_type=None, output_channel=None,
+                           monitoring=None):
+        """Set routing by display name, as shown in Live's I/O section.
+
+        Types are written before channels: the available channels depend on
+        the type.
+        """
+        track, label = self._resolve_track(track_index, track_type)
+        is_plain = (track_type or "track").lower() == "track"
+        if not is_plain and (input_type is not None or input_channel is not None
+                             or monitoring is not None):
+            raise ValueError("Return and main tracks only have an output routing")
+        changed = []
+        for side, rtype, rchan in (("input", input_type, input_channel),
+                                   ("output", output_type, output_channel)):
+            if rtype is not None:
+                options = list(getattr(track, "available_%s_routing_types" % side))
+                setattr(track, "%s_routing_type" % side,
+                        self._match_routing(options, rtype, "%s type" % side))
+                changed.append("%s_type" % side)
+            if rchan is not None:
+                options = list(getattr(track, "available_%s_routing_channels" % side))
+                setattr(track, "%s_routing_channel" % side,
+                        self._match_routing(options, rchan, "%s channel" % side))
+                changed.append("%s_channel" % side)
+        if monitoring is not None:
+            key = str(monitoring).strip().lower()
+            if key not in MONITORING_BY_NAME:
+                raise ValueError("monitoring must be 'in', 'auto' or 'off'")
+            track.current_monitoring_state = MONITORING_BY_NAME[key]
+            changed.append("monitoring")
+        result = self._get_track_routing(track_index, track_type)
+        result["changed"] = changed
+        return result
+
+    # ------------------------------------------------- arrangement recording
+    def _armed_tracks(self):
+        armed = []
+        for i, track in enumerate(self._song.tracks):
+            if self._safe_arm(track):
+                armed.append({"index": i, "name": track.name})
+        return armed
+
+    def _record_arrangement(self, start_time, end_time):
+        """Record armed tracks into the Arrangement from start_time to end_time.
+
+        Moves the playhead, turns on Arrangement Record and starts playback,
+        then replies at once: a watcher stops playback and recording when the
+        playhead reaches end_time (or when playback is stopped by hand).
+        Poll get_recording_status for the outcome.
+        """
+        song = self._song
+        start = float(start_time)
+        if end_time is None or float(end_time) <= start:
+            raise ValueError("end_time must be after start_time")
+        end = float(end_time)
+        armed = self._armed_tracks()
+        if not armed:
+            raise ValueError("No armed track: arm the track(s) to record first")
+        if getattr(self, "_recording", None) and not self._recording.get("finished"):
+            raise RuntimeError("A recording is already running")
+        if song.is_playing:
+            song.stop_playing()
+        song.current_song_time = start
+
+        def start_deferred(resolve, reject):
+            def go(settled):
+                song.record_mode = True
+                song.start_playing()
+                self._recording = {
+                    "start_time": start, "end_time": end, "armed": armed,
+                    "finished": False, "stopped_at": None,
+                    "playhead_settled": settled,
+                }
+                self.schedule_message(RECORDING_POLL_TICKS, self._recording_watch)
+                resolve(dict(self._recording, status="recording"))
+
+            self._poll_until(
+                lambda: self._playhead_at(start),
+                on_ready=lambda: go(True),
+                on_timeout=lambda: go(False),
+                reject=reject,
+                max_ticks=PLAYHEAD_SETTLE_TICKS,
+            )
+
+        return _Deferred(start_deferred)
+
+    def _recording_watch(self):
+        rec = getattr(self, "_recording", None)
+        if not rec or rec.get("finished"):
+            return
+        try:
+            song = self._song
+            if not song.is_playing or float(song.current_song_time) >= rec["end_time"]:
+                self._finish_recording("end_reached" if song.is_playing else "stopped")
+            else:
+                self.schedule_message(RECORDING_POLL_TICKS, self._recording_watch)
+        except Exception as e:
+            self.log_message("Recording watcher error: " + str(e))
+            self._finish_recording("error: %s" % e)
+
+    def _finish_recording(self, reason):
+        rec = getattr(self, "_recording", None) or {}
+        song = self._song
+        rec["stopped_at"] = float(song.current_song_time)
+        try:
+            song.record_mode = False
+        finally:
+            if song.is_playing:
+                song.stop_playing()
+        rec["finished"] = True
+        rec["reason"] = reason
+        self._recording = rec
+        return rec
+
+    def _stop_arrangement_recording(self):
+        rec = getattr(self, "_recording", None)
+        if not rec or rec.get("finished"):
+            self._song.record_mode = False
+            return {"finished": True, "reason": "nothing_running"}
+        return dict(self._finish_recording("stopped_by_command"))
+
+    def _get_recording_status(self):
+        song = self._song
+        rec = getattr(self, "_recording", None)
+        return {
+            "record_mode": self._safe_song_property("record_mode", bool, False),
+            "is_playing": self._safe_song_property("is_playing", bool, False),
+            "current_song_time": self._safe_song_property("current_song_time", float, 0.0),
+            "recording": dict(rec) if rec else None,
+            "armed_tracks": self._armed_tracks(),
+        }
+
+    def _get_audio_clip_file(self, track_index, clip_index, location="arrangement"):
+        """File behind an audio clip (e.g. a freshly recorded take)."""
+        clip, label = self._resolve_clip(track_index, clip_index, location)
+        if not getattr(clip, "is_audio_clip", False):
+            raise ValueError("%s is not an audio clip" % label)
+        return {
+            "clip": label,
+            "name": clip.name,
+            "file_path": self._safe_attr(clip, "file_path", str, None),
+            "length": self._safe_attr(clip, "length", float, None),
+            "start_time": self._safe_attr(clip, "start_time", float, None),
+            "end_time": self._safe_attr(clip, "end_time", float, None),
+            "sample_rate": self._safe_attr(clip, "sample_rate", float, None),
+            "sample_length": self._safe_attr(clip, "sample_length", int, None),
+            "warping": self._safe_attr(clip, "warping", bool, None),
+        }
 
     def get_browser_tree(self, category_type="all"):
         """

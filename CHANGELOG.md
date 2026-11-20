@@ -4,6 +4,25 @@ Changes in this fork ([cedrati/ableton-mcp](https://github.com/cedrati/ableton-m
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Remote Script 1.12.0
+
+### Added
+
+- **Return and main tracks:** `load_instrument_or_effect`, `get_track_info`, `get_device_parameters` and `set_device_parameter` take `track_type` (`track`, `return`, `master`): one shared reverb on a return track, a limiter on the main track. The server only sends `track_type` to a script that advertises `return_master_devices`; an older one would act on the regular track with the same index.
+- **Routing:** `get_track_routing` / `set_track_routing` read and set input/output routing type and channel and monitoring, matching the names Live shows (exact, else a unique substring). Types are written before channels, since the channels depend on the type. Return and main tracks only have an output.
+- **Arrangement recording:** `record_arrangement` moves the playhead, turns Arrangement Record on, plays, and a watcher stops at the end position (or when playback is stopped by hand). `get_recording_status`, `stop_arrangement_recording`. `get_audio_clip_file` gives the file behind an audio clip.
+- **Listening (server):** `listen_to_arrangement` records the main output on a temporary resampling track (finds the input by its localized name, e.g. "Rééchantillonnage"), disarms other tracks for the take, analyzes the file and deletes the track. `analyze_audio_file` measures any WAV/AIFF (PCM 8–32 bit, float 32/64): levels, clipping, loudness over time, silences, stereo correlation, low/mid/high balance.
+- **MIDI files (server):** `import_midi_file` reads format 0/1 Standard MIDI Files without a dependency and imports them into a Session clip (created to fit, rounded to a bar) or an Arrangement clip, with track/channel filters and transposition. Notes on the same pitch and start in two voices are merged, as Live keeps one.
+- Docs: plugins (VST/AU), User Library, Packs and the other browser roots were already reachable by path and URI; the tool descriptions now say so.
+
+### Not possible from a Remote Script
+
+Saving the set, exporting audio, creating group tracks and writing Arrangement (song) automation such as tempo are not exposed by Live's API. `listen_to_arrangement` stands in for an export when the goal is to check the result.
+
+### Verified in Live 12
+
+Loaded a convolution reverb on a return track and a limiter on the main track, set their parameters, browsed `plugins` and `user_library`, routed a MIDI track's input from another MIDI track (monitoring In) and back, imported a two-voice invention (458 notes sent, 457 kept by Live: two voices share one note, which led to the duplicate merge), and listened to an 85-second passage end to end (temporary track created, recorded, analyzed, deleted).
+
 ## Remote Script 1.11.0
 
 ### Added
