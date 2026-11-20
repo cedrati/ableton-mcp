@@ -9,7 +9,7 @@ An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Remote Script](https://img.shields.io/badge/Remote%20Script-1.16.0-blue)
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
-![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
+[![Tests](https://github.com/cedrati/ableton-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/cedrati/ableton-mcp/actions/workflows/tests.yml)
 
 [Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
 
@@ -269,7 +269,7 @@ uv run --with pytest pytest -q          # 262 tests, no Live needed
 uv run ableton-mcp-install-script       # install your working copy into Live
 ```
 
-When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`, and the package `version` in `pyproject.toml`, which follows the script), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md).
+When you change the Remote Script, bump `SCRIPT_VERSION` (and `EXPECTED_REMOTE_SCRIPT_VERSION` in `MCP_Server/remote_script_install.py`, and the package `version` in `pyproject.toml`, which follows the script), copy it to `MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py`, and add an entry to the [Changelog](CHANGELOG.md). GitHub Actions runs the tests on Python 3.10, 3.12 and 3.13 and checks the bundled copy on every push and pull request.
 
 ---
 
