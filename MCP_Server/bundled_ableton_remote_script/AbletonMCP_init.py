@@ -44,7 +44,7 @@ MAX_REQUEST_BYTES = 16 * 1024 * 1024
 
 # Bumped whenever the TCP command surface changes; the MCP server compares
 # this to EXPECTED_REMOTE_SCRIPT_VERSION.
-SCRIPT_VERSION = "1.15.0"
+SCRIPT_VERSION = "1.16.0"
 PROTOCOL_VERSION = 1
 
 SCRIPT_CAPABILITIES = [
@@ -112,6 +112,14 @@ SCRIPT_CAPABILITIES = [
     "get_groove_pool",
     "set_clip_groove",
     "set_groove_params",
+    # devices: identity, sidechain, plugin presets, Simpler, racks, drum chokes
+    "get_device_info",
+    "set_device_sidechain",
+    "select_plugin_preset",
+    "simpler_replace_sample",
+    "simpler_configure",
+    "rack_variation",
+    "set_drum_choke",
 ]
 
 NOTE_NAMES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
@@ -411,6 +419,10 @@ class AbletonMCP(ControlSurface):
                 response["result"] = self._get_drum_rack_map(params.get("track_index", 0))
             elif command_type == "get_groove_pool":
                 response["result"] = self._get_groove_pool()
+            elif command_type == "get_device_info":
+                response["result"] = self._get_device_info(
+                    params.get("track_index", 0), params.get("device_index", 0),
+                    params.get("track_type", "track"))
             elif command_type == "get_audio_clip_file":
                 response["result"] = self._get_audio_clip_file(
                     params.get("track_index", 0), params.get("clip_index", 0),
@@ -445,7 +457,10 @@ class AbletonMCP(ControlSurface):
                                  # Routing / recording
                                  "set_track_routing", "record_arrangement",
                                  "stop_arrangement_recording", "set_song_scale",
-                                 "set_clip_groove", "set_groove_params"]:
+                                 "set_clip_groove", "set_groove_params",
+                                 "set_device_sidechain", "select_plugin_preset",
+                                 "simpler_replace_sample", "simpler_configure",
+                                 "rack_variation", "set_drum_choke"]:
                 # Use a thread-safe approach with a response queue
                 response_queue = queue.Queue()
                 
@@ -652,6 +667,33 @@ class AbletonMCP(ControlSurface):
                                 params.get("end_time"))
                         elif command_type == "stop_arrangement_recording":
                             result = self._stop_arrangement_recording()
+                        elif command_type == "set_device_sidechain":
+                            result = self._set_device_sidechain(
+                                params.get("track_index", 0), params.get("device_index", 0),
+                                params.get("track_type", "track"), params.get("source_type"),
+                                params.get("source_channel"), params.get("enable", True))
+                        elif command_type == "select_plugin_preset":
+                            result = self._select_plugin_preset(
+                                params.get("track_index", 0), params.get("device_index", 0),
+                                params.get("track_type", "track"), params.get("preset_index"),
+                                params.get("preset_name"))
+                        elif command_type == "simpler_replace_sample":
+                            result = self._simpler_replace_sample(
+                                params.get("track_index", 0), params.get("device_index", 0),
+                                params.get("file_path", ""))
+                        elif command_type == "simpler_configure":
+                            result = self._simpler_configure(
+                                params.get("track_index", 0), params.get("device_index", 0),
+                                params.get("settings") or {})
+                        elif command_type == "rack_variation":
+                            result = self._rack_variation(
+                                params.get("track_index", 0), params.get("device_index", 0),
+                                params.get("track_type", "track"), params.get("action", "list"),
+                                params.get("index"))
+                        elif command_type == "set_drum_choke":
+                            result = self._set_drum_choke(
+                                params.get("track_index", 0), params.get("notes") or [],
+                                params.get("group", 0))
                         elif command_type == "set_clip_groove":
                             result = self._set_clip_groove(
                                 params.get("track_index", 0), params.get("clip_index", 0),
@@ -888,6 +930,8 @@ class AbletonMCP(ControlSurface):
                     "index": device_index,
                     "name": device.name,
                     "class_name": device.class_name,
+            "class_display_name": self._safe_attr(device, "class_display_name", str, None),
+                    "class_display_name": self._safe_attr(device, "class_display_name", str, None),
                     "type": self._get_device_type(device)
                 })
             
@@ -3490,7 +3534,8 @@ class AbletonMCP(ControlSurface):
         """Pick the routing option whose display_name matches ``wanted``:
         exact (case-insensitive) first, else a unique substring match."""
         wanted_l = str(wanted).strip().lower()
-        names = [getattr(o, "display_name", "") for o in options]
+        names = [(o.get("display_name", "") if isinstance(o, dict) else getattr(o, "display_name", "")) or ""
+                 for o in options]
         for opt, name in zip(options, names):
             if name.lower() == wanted_l:
                 return opt
@@ -3722,6 +3767,200 @@ class AbletonMCP(ControlSurface):
             self._song.groove_amount = float(global_amount)
             out["global_amount"] = float(self._song.groove_amount)
         return out
+
+    # ------------------------------------------------------------ devices
+    def _resolve_device(self, track_index, device_index, track_type="track"):
+        track, label = self._resolve_track(track_index, track_type)
+        devices = list(track.devices)
+        if device_index < 0 or device_index >= len(devices):
+            raise IndexError("Device index out of range (%d devices on %s)" % (len(devices), label))
+        return devices[device_index], "%s device %d" % (label, device_index)
+
+    @staticmethod
+    def _routing_dict(obj):
+        if obj is None:
+            return None
+        if isinstance(obj, dict):
+            return obj.get("display_name")
+        return getattr(obj, "display_name", None)
+
+    def _sidechain_info(self, device):
+        if not hasattr(device, "available_input_routing_types"):
+            return None
+        info = {
+            "source_type": self._routing_dict(self._safe_attr(device, "input_routing_type")),
+            "source_channel": self._routing_dict(self._safe_attr(device, "input_routing_channel")),
+            "available_types": [self._routing_dict(o) for o in
+                                self._safe_attr(device, "available_input_routing_types", list, [])],
+            "available_channels": [self._routing_dict(o) for o in
+                                   self._safe_attr(device, "available_input_routing_channels", list, [])],
+        }
+        for p in device.parameters:
+            if p.name.lower().replace(" ", "") in ("s/con", "sidechainon", "sidechain"):
+                info["enable_parameter"] = {"name": p.name, "value": float(p.value)}
+        return info
+
+    def _get_device_info(self, track_index, device_index, track_type="track"):
+        """Identity and the device-specific API: sidechain routing (Compressor),
+        plugin presets, Simpler sample and slicing, rack chains/variations."""
+        device, label = self._resolve_device(track_index, device_index, track_type)
+        info = {
+            "device": label,
+            "name": device.name,
+            "class_name": device.class_name,
+            "class_display_name": self._safe_attr(device, "class_display_name", str, None),
+            "type": {0: "undefined", 1: "instrument", 2: "audio_effect", 4: "midi_effect"}.get(
+                self._safe_attr(device, "type", int, 0), "undefined"),
+            "is_active": self._safe_attr(device, "is_active", bool, True),
+            "parameter_count": len(device.parameters),
+            "latency_ms": self._safe_attr(device, "latency_in_ms", float, None),
+        }
+        sc = self._sidechain_info(device)
+        if sc is not None:
+            info["sidechain"] = sc
+        if hasattr(device, "presets") and hasattr(device, "selected_preset_index"):
+            presets = [str(p) for p in self._safe_attr(device, "presets", list, [])]
+            info["plugin"] = {"presets": presets[:200], "preset_count": len(presets),
+                              "selected_preset_index": self._safe_attr(device, "selected_preset_index", int, None)}
+        if hasattr(device, "playback_mode") and hasattr(device, "sample"):
+            sample = self._safe_attr(device, "sample")
+            info["simpler"] = {
+                "playback_mode": {0: "classic", 1: "one_shot", 2: "slicing"}.get(
+                    self._safe_attr(device, "playback_mode", int, None)),
+                "voices": self._safe_attr(device, "voices", int, None),
+                "sample": None if sample is None else {
+                    "file_path": self._safe_attr(sample, "file_path", str, None),
+                    "length_frames": self._safe_attr(sample, "length", int, None),
+                    "sample_rate": self._safe_attr(sample, "sample_rate", int, None),
+                    "warping": self._safe_attr(sample, "warping", bool, None),
+                    "slicing_style": {0: "transient", 1: "beat", 2: "region", 3: "manual"}.get(
+                        self._safe_attr(sample, "slicing_style", int, None)),
+                    "slice_count": len(self._safe_attr(sample, "slices", list, []) or []),
+                },
+            }
+        if getattr(device, "can_have_chains", False):
+            info["rack"] = {
+                "chains": [str(c.name) for c in getattr(device, "chains", [])][:128],
+                "drum_rack": bool(getattr(device, "can_have_drum_pads", False)),
+                "visible_macros": self._safe_attr(device, "visible_macro_count", int, None),
+                "variation_count": self._safe_attr(device, "variation_count", int, None),
+                "selected_variation": self._safe_attr(device, "selected_variation_index", int, None),
+            }
+        return info
+
+    def _set_device_sidechain(self, track_index, device_index, track_type="track",
+                              source_type=None, source_channel=None, enable=True):
+        """Route a device's sidechain input (Compressor in Live's API) from
+        another track, by the names Live shows, and switch the sidechain on."""
+        device, label = self._resolve_device(track_index, device_index, track_type)
+        if not hasattr(device, "available_input_routing_types"):
+            raise ValueError("%s (%s) has no sidechain routing in Live's API" % (label, device.class_name))
+        if source_type is not None:
+            options = list(device.available_input_routing_types)
+            device.input_routing_type = self._match_routing(options, source_type, "sidechain source")
+        if source_channel is not None:
+            options = list(device.available_input_routing_channels)
+            device.input_routing_channel = self._match_routing(options, source_channel, "sidechain channel")
+        if enable is not None:
+            for p in device.parameters:
+                if p.name.lower().replace(" ", "") in ("s/con", "sidechainon", "sidechain"):
+                    p.value = p.max if enable else p.min
+        return dict(self._sidechain_info(device) or {}, device=label)
+
+    def _select_plugin_preset(self, track_index, device_index, track_type="track",
+                              preset_index=None, preset_name=None):
+        device, label = self._resolve_device(track_index, device_index, track_type)
+        if not hasattr(device, "selected_preset_index"):
+            raise ValueError("%s is not a plug-in" % label)
+        presets = [str(p) for p in list(device.presets)]
+        if preset_name is not None:
+            wanted = str(preset_name).lower()
+            matches = [i for i, p in enumerate(presets) if p.lower() == wanted] or \
+                      [i for i, p in enumerate(presets) if wanted in p.lower()]
+            if not matches:
+                raise ValueError("No preset matching '%s'" % preset_name)
+            preset_index = matches[0]
+        if preset_index is None or preset_index < 0 or preset_index >= len(presets):
+            raise IndexError("Preset index out of range (%d presets)" % len(presets))
+        device.selected_preset_index = int(preset_index)
+        return {"device": label, "preset_index": int(preset_index), "preset": presets[int(preset_index)]}
+
+    def _simpler(self, track_index, device_index):
+        device, label = self._resolve_device(track_index, device_index, "track")
+        if not hasattr(device, "playback_mode"):
+            raise ValueError("%s is not a Simpler" % label)
+        return device, label
+
+    def _simpler_replace_sample(self, track_index, device_index, file_path):
+        device, label = self._simpler(track_index, device_index)
+        if not file_path or not os.path.isabs(file_path) or not os.path.exists(file_path):
+            raise ValueError("file_path must be an existing absolute path")
+        device.replace_sample(file_path)
+        return {"device": label, "loaded": file_path}
+
+    def _simpler_configure(self, track_index, device_index, settings):
+        """playback_mode classic|one_shot|slicing, slicing_style
+        transient|beat|region|manual, slicing_sensitivity 0-1,
+        slicing_beat_division, slicing_region_count, voices, warp_as (beats),
+        crop/reverse (true)."""
+        device, label = self._simpler(track_index, device_index)
+        modes = {"classic": 0, "one_shot": 1, "slicing": 2}
+        styles = {"transient": 0, "beat": 1, "region": 2, "manual": 3}
+        sample = getattr(device, "sample", None)
+        done = []
+        for key, value in settings.items():
+            if key == "playback_mode":
+                device.playback_mode = modes[str(value)]
+            elif key == "voices":
+                device.voices = int(value)
+            elif key in ("slicing_style", "slicing_sensitivity", "slicing_beat_division",
+                         "slicing_region_count"):
+                if sample is None:
+                    raise ValueError("No sample loaded")
+                setattr(sample, key, styles[str(value)] if key == "slicing_style" else value)
+            elif key == "warp_as":
+                device.warp_as(int(value))
+            elif key in ("crop", "reverse") and value:
+                getattr(device, key)()
+            else:
+                raise ValueError("Unknown Simpler setting '%s'" % key)
+            done.append(key)
+        info = self._get_device_info(track_index, device_index)
+        info["changed"] = done
+        return info
+
+    def _rack_variation(self, track_index, device_index, track_type="track", action="list", index=None):
+        device, label = self._resolve_device(track_index, device_index, track_type)
+        if not getattr(device, "can_have_chains", False):
+            raise ValueError("%s is not a rack" % label)
+        if action == "recall":
+            device.selected_variation_index = int(index)
+            device.recall_selected_variation()
+        elif action == "store":
+            device.store_variation()
+        elif action == "randomize":
+            device.randomize_macros()
+        elif action != "list":
+            raise ValueError("action must be list, recall, store or randomize")
+        return {"device": label, "action": action,
+                "variation_count": self._safe_attr(device, "variation_count", int, None),
+                "selected_variation": self._safe_attr(device, "selected_variation_index", int, None),
+                "macros": [{"name": p.name, "value": float(p.value)} for p in list(device.parameters)[1:17]]}
+
+    def _set_drum_choke(self, track_index, notes, group):
+        """Put Drum Rack pads (by MIDI note) in a choke group (0 = none):
+        the classic is closed and open hi-hat in the same group."""
+        track, label = self._resolve_track(track_index, "track")
+        rack, _ = self._find_drum_rack(list(track.devices))
+        if rack is None:
+            raise ValueError("No Drum Rack on %s" % label)
+        done = []
+        for pad in rack.drum_pads:
+            if int(pad.note) in [int(n) for n in notes]:
+                for chain in getattr(pad, "chains", []):
+                    chain.choke_group = int(group)
+                done.append({"note": int(pad.note), "name": str(pad.name), "choke_group": int(group)})
+        return {"track": label, "pads": done}
 
     # --------------------------------------------------------- song scale
     def _get_song_scale(self):

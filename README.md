@@ -7,9 +7,9 @@
 An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by **Olivier Cedrati** ([@cedrati](https://github.com/cedrati)).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-![Remote Script](https://img.shields.io/badge/Remote%20Script-1.15.0-blue)
+![Remote Script](https://img.shields.io/badge/Remote%20Script-1.16.0-blue)
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
-![Tests](https://img.shields.io/badge/tests-253%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-262%20passing-brightgreen)
 
 [Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
 
@@ -38,10 +38,10 @@ It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https
 | **Clips** | Notes in Arrangement clips, partial note removal, loop brace and markers, warp (modes, markers, conform a loop to the tempo), clip automation envelopes. |
 | **Files** | Import Standard MIDI Files into clips; analyse any WAV/AIFF. |
 | **Session** | Duplicate and delete tracks; list, create, rename, duplicate, launch and delete scenes; delete Arrangement clips. |
-| **Devices & browser** | Plugins (VST, VST3, AU), User Library and Packs are browsable and loadable like built-in devices. |
+| **Devices & browser** | Know every device in the set and what it does (native devices from the Live 12 manual, Max for Live, plug-in families) and every installed plug-in; route a Compressor's sidechain; plug-in presets; Simpler sample loading and slicing; rack variations; drum choke groups. Plugins (VST, VST3, AU), User Library and Packs load like built-in devices. |
 | **Reliability** | Playhead moves, locator creation and device loading reply only once Live has applied them; version handshake between server and Remote Script; capability checks so a newer server never sends a command an older script would misread. |
 
-Everything is covered by automated tests (253) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
+Everything is covered by automated tests (262) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
 
 ---
 
@@ -107,7 +107,7 @@ The server and the Remote Script must come from the **same version** — always 
 
 ### 4. Check
 
-Ask the assistant to run `get_remote_script_info`. It should report `script_version` **1.15.0** and `up_to_date: true`.
+Ask the assistant to run `get_remote_script_info`. It should report `script_version` **1.16.0** and `up_to_date: true`.
 
 ### Updating
 
@@ -130,6 +130,8 @@ Ask the assistant to run `get_remote_script_info`. It should report `script_vers
 
 **Mix and master**
 - *"Listen to the whole track and tell me if it's ready for streaming."*
+- *"What's loaded in this set, and which of my plug-ins would make a better acid line?"*
+- *"Duck the bass with the kick."*
 - *"Put a cathedral reverb on return A and send the pads to it."*
 - *"The low end is muddy — find out why and fix it."*
 - *"Layer the bass MIDI on a second synth one octave down."*
@@ -167,6 +169,13 @@ Indexes start at 0. Times and lengths are in **beats**. Notes use MIDI numbers (
 | `get_browser_tree` · `get_browser_items_at_path` | Browse `instruments`, `sounds`, `drums`, `audio_effects`, `midi_effects`, `plugins`, `user_library`, `packs`, `samples`, `max_for_live`, `current_project`. |
 | `load_instrument_or_effect` · `load_drum_kit` | Load by browser URI, on a track, a return track or the main track. |
 | `get_device_parameters` · `set_device_parameter` | Every parameter with its range, Live's display string and, for list parameters, the names of the values. |
+| `device_inventory` | Every device in the set and what it is for; optionally every installed plug-in by vendor. |
+| `device_knowledge` | Sheet for a native device (Live 12 manual), a bundled Max for Live device or a known plug-in; the native catalogue. |
+| `get_device_info` | Real device name, kind, latency, and device-specific state: sidechain, plug-in presets, Simpler, rack. |
+| `set_device_sidechain` | Route a Compressor's sidechain from another track and switch it on (ducking). |
+| `plugin_presets` | List or select a plug-in's presets (as exposed to Live). |
+| `simpler_sample` | Load a sample into Simpler; classic / one-shot / slicing by transient, beat, region; warp, crop, reverse. |
+| `rack_variation` · `set_drum_choke` | Rack macro variations (list, recall, store, randomize); Drum Rack choke groups. |
 
 ### Clips and notes
 
@@ -256,7 +265,7 @@ MCP client (Claude…)  ⇄  MCP server (MCP_Server/, Python)  ⇄  TCP 127.0.0.
 ```bash
 git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-mcp
 cd ableton-mcp
-uv run --with pytest pytest -q          # 253 tests, no Live needed
+uv run --with pytest pytest -q          # 262 tests, no Live needed
 uv run ableton-mcp-install-script       # install your working copy into Live
 ```
 

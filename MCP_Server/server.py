@@ -3774,6 +3774,288 @@ def arrangement_overview(ctx: Context, block_bars: int = 8, user_prompt: str = "
         return f"Error reading the arrangement: {str(e)}"
 
 
+# ───────────────────────────── Devices ──────────────────────────────
+
+@mcp.tool()
+@telemetry_tool("device_inventory")
+def device_inventory(ctx: Context, installed_plugins: bool = False, user_prompt: str = "") -> str:
+    """
+    Everything loaded in the set — every device on every track, return track
+    and the main track, racks with their chains — with what each one is and
+    what it is for (native devices from the Live 12 manual, Max for Live
+    devices, known plug-in families such as Arturia emulations), plus, with
+    installed_plugins=true, the VST/VST3/AU plug-ins installed, by vendor.
+
+    Parameters:
+    - installed_plugins: Also list the installed plug-ins
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    try:
+        from . import device_knowledge as dk
+
+        ableton = get_ableton_connection()
+        info = ableton.send_command("get_session_info")
+        targets = [(i, "track") for i in range(int(info.get("track_count", 0)))]
+        targets += [(i, "return") for i in range(int(info.get("return_track_count", 0)))]
+        targets.append((0, "master"))
+        tracks = []
+        for index, tt in targets:
+            params: Dict[str, Any] = {"track_index": index}
+            if tt != "track":
+                params["track_type"] = tt
+            t = ableton.send_command("get_track_info", params)
+            devices = []
+            for d in t.get("devices", []):
+                card = dk.describe_device(d)
+                card["index"] = d.get("index")
+                if d.get("class_name") in ("InstrumentGroupDevice", "AudioEffectGroupDevice",
+                                           "MidiEffectGroupDevice", "DrumGroupDevice"):
+                    try:
+                        dp = dict(params, device_index=d["index"])
+                        full = ableton.send_command("get_device_parameters", dp).get("device", {})
+                        chains = full.get("chains") or []
+                        card["chains"] = [{"name": c.get("name"),
+                                           "devices": [x.get("name") for x in c.get("devices", [])]}
+                                          for c in chains][:32]
+                    except Exception:
+                        pass
+                devices.append(card)
+            tracks.append({"track": t.get("name"), "type": tt, "index": index, "devices": devices})
+        result: Dict[str, Any] = {"tracks": tracks, "midi_tools_note": dk.MIDI_TOOLS_NOTE}
+        if installed_plugins:
+            by_vendor: Dict[str, List[str]] = {}
+            for fmt in ("VST3", "VST", "AUv2"):
+                try:
+                    root = ableton.send_command("get_browser_items_at_path", {"path": "plugins/" + fmt})
+                except Exception:
+                    continue
+                for item in root.get("items", []):
+                    if item.get("is_folder"):
+                        sub = ableton.send_command("get_browser_items_at_path",
+                                                   {"path": "plugins/%s/%s" % (fmt, item["name"])})
+                        vendor = item["name"]
+                        for x in sub.get("items", []):
+                            by_vendor.setdefault(vendor, [])
+                            if x["name"] not in by_vendor[vendor]:
+                                by_vendor[vendor].append(x["name"])
+            result["installed_plugins"] = {v: sorted(n) for v, n in sorted(by_vendor.items())}
+        return _json(result)
+    except Exception as e:
+        logger.error(f"Error building the device inventory: {str(e)}")
+        return f"Error building the device inventory: {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("device_knowledge")
+def device_knowledge(ctx: Context, name: str = None, kind: str = None, user_prompt: str = "") -> str:
+    """
+    What a device does: a native Live device (from the Live 12 manual: kind,
+    category, purpose, key parameters, electronic/techno uses, sidechain,
+    tip), a bundled Max for Live device, or a known plug-in (e.g. "Acid V",
+    "Comp FET-76", "Cthulhu"). Without `name`, the catalogue of native
+    devices, optionally filtered by kind (instrument, audio_effect,
+    midi_effect, max_for_live). Also says what Live 12's MIDI Tools are and
+    that the API can't drive them.
+
+    Parameters:
+    - name: Device or plug-in name
+    - kind: Filter for the catalogue
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    from . import device_knowledge as dk
+
+    if name:
+        entry = dk.lookup(name)
+        return _json(entry) if entry else "No sheet for '%s' (maybe a third-party plug-in: check its parameters)" % name
+    return _json({"devices": dk.catalog(kind), "midi_tools": dk.MIDI_TOOLS_NOTE})
+
+
+def _device_cmd(command: str, params: Dict[str, Any], track_type: str = "track") -> str:
+    from .script_handshake import require_capability
+
+    missing = require_capability(command)
+    if missing:
+        return missing
+    missing = _apply_track_type(params, track_type)
+    if missing:
+        return missing
+    try:
+        return _json(get_ableton_connection().send_command(command, params))
+    except Exception as e:
+        return f"Error ({command}): {str(e)}"
+
+
+@mcp.tool()
+@telemetry_tool("get_device_info")
+def get_device_info(ctx: Context, track_index: int, device_index: int, track_type: str = "track",
+                    user_prompt: str = "") -> str:
+    """
+    One device's identity (Live's real device name even when a preset renamed
+    it, kind, latency) and its specific API: sidechain routing and options
+    (Compressor), plug-in presets, Simpler sample/slicing state, rack chains
+    and variations.
+
+    Parameters:
+    - track_index / device_index: The device
+    - track_type: "track", "return" or "master"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _device_cmd("get_device_info", {"track_index": track_index, "device_index": device_index},
+                       track_type)
+
+
+@mcp.tool()
+@rich_telemetry_tool("set_device_sidechain")
+def set_device_sidechain(ctx: Context, track_index: int, device_index: int, source: str,
+                         channel: str = None, enable: bool = True, track_type: str = "track",
+                         user_prompt: str = "") -> str:
+    """
+    Feed a Compressor's sidechain from another track (e.g. duck the bass or
+    pads with the kick) and switch its sidechain on. `source` is the name of
+    the track as Live lists it (see get_device_info: sidechain.available_types),
+    `channel` e.g. "Post FX" / "Pre FX". Live's API exposes sidechain routing
+    on the Compressor; other devices with a sidechain (Gate, Glue, Auto
+    Filter...) are routed in the interface.
+
+    Parameters:
+    - track_index / device_index: The Compressor
+    - source: Sidechain source track name (exact, or a unique part of it)
+    - channel: Source tap (optional)
+    - enable: Turn the sidechain on (default) or off
+    - track_type: "track", "return" or "master"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    params = {"track_index": track_index, "device_index": device_index, "source_type": source,
+              "enable": enable}
+    if channel is not None:
+        params["source_channel"] = channel
+    return _device_cmd("set_device_sidechain", params, track_type)
+
+
+@mcp.tool()
+@rich_telemetry_tool("plugin_presets")
+def plugin_presets(ctx: Context, track_index: int, device_index: int, preset_index: int = None,
+                   preset_name: str = None, track_type: str = "track", user_prompt: str = "") -> str:
+    """
+    A VST/AU plug-in's preset list (as the plug-in exposes it to Live), or
+    select one by index or name (exact, else first containing the text).
+
+    Parameters:
+    - track_index / device_index: The plug-in
+    - preset_index / preset_name: Preset to load (omit both to list)
+    - track_type: "track", "return" or "master"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    if preset_index is None and preset_name is None:
+        out = _device_cmd("get_device_info", {"track_index": track_index, "device_index": device_index},
+                          track_type)
+        try:
+            data = json.loads(out)
+            return _json(data.get("plugin") or {"error": "not a plug-in"})
+        except ValueError:
+            return out
+    params = {"track_index": track_index, "device_index": device_index}
+    if preset_index is not None:
+        params["preset_index"] = preset_index
+    if preset_name is not None:
+        params["preset_name"] = preset_name
+    return _device_cmd("select_plugin_preset", params, track_type)
+
+
+@mcp.tool()
+@rich_telemetry_tool("simpler_sample")
+def simpler_sample(ctx: Context, track_index: int, device_index: int, file_path: str = None,
+                   playback_mode: str = None, slicing_style: str = None, slicing_sensitivity: float = None,
+                   slicing_beat_division: int = None, slicing_region_count: int = None, voices: int = None,
+                   warp_as_beats: int = None, crop: bool = False, reverse: bool = False,
+                   user_prompt: str = "") -> str:
+    """
+    Load a sample into a Simpler and set it up: playback mode (classic,
+    one_shot, slicing), slicing by transient / beat / region / manual with
+    sensitivity, beat division or region count (e.g. chop a break into 16
+    slices playable from a Drum Rack-like MIDI layout), voices, warp the
+    sample as N beats, crop, reverse.
+
+    Parameters:
+    - track_index / device_index: The Simpler
+    - file_path: Absolute path of an audio file to load (optional)
+    - playback_mode: classic | one_shot | slicing
+    - slicing_style: transient | beat | region | manual
+    - slicing_sensitivity: 0-1 (transient mode)
+    - slicing_beat_division: Live's beat division index (beat mode)
+    - slicing_region_count: Number of slices (region mode)
+    - voices: Polyphony
+    - warp_as_beats: Warp the sample to this many beats
+    - crop / reverse: Destructive edits of the sample in Simpler
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    out = {}
+    if file_path:
+        res = _device_cmd("simpler_replace_sample", {"track_index": track_index, "device_index": device_index,
+                                                     "file_path": os.path.expanduser(file_path)})
+        if res.startswith("Error") or res.startswith("Ableton Remote Script missing"):
+            return res
+        out["loaded"] = json.loads(res).get("loaded")
+    settings: Dict[str, Any] = {}
+    for key, value in (("playback_mode", playback_mode), ("slicing_style", slicing_style),
+                       ("slicing_sensitivity", slicing_sensitivity),
+                       ("slicing_beat_division", slicing_beat_division),
+                       ("slicing_region_count", slicing_region_count), ("voices", voices),
+                       ("warp_as", warp_as_beats)):
+        if value is not None:
+            settings[key] = value
+    if crop:
+        settings["crop"] = True
+    if reverse:
+        settings["reverse"] = True
+    if settings:
+        res = _device_cmd("simpler_configure", {"track_index": track_index, "device_index": device_index,
+                                                "settings": settings})
+        try:
+            out.update(json.loads(res))
+        except ValueError:
+            return res
+    return _json(out) if out else "Nothing to do: give file_path and/or settings"
+
+
+@mcp.tool()
+@rich_telemetry_tool("rack_variation")
+def rack_variation(ctx: Context, track_index: int, device_index: int, action: str = "list",
+                   index: int = None, track_type: str = "track", user_prompt: str = "") -> str:
+    """
+    A rack's macro variations (Live 11+): list them with the current macro
+    values, recall one, store the current macros as a new variation, or
+    randomize the macros (great for happy accidents, then store the result).
+
+    Parameters:
+    - track_index / device_index: The rack
+    - action: list | recall | store | randomize
+    - index: Variation to recall
+    - track_type: "track", "return" or "master"
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _device_cmd("rack_variation", {"track_index": track_index, "device_index": device_index,
+                                          "action": action, "index": index}, track_type)
+
+
+@mcp.tool()
+@rich_telemetry_tool("set_drum_choke")
+def set_drum_choke(ctx: Context, track_index: int, notes: List[int], group: int = 1,
+                   user_prompt: str = "") -> str:
+    """
+    Put Drum Rack pads in a choke group so they cut each other — the classic:
+    closed and open hi-hat together (e.g. notes [42, 46], group 1). Group 0
+    removes the choke.
+
+    Parameters:
+    - track_index: Track with the Drum Rack
+    - notes: Pad MIDI notes (see get_drum_map)
+    - group: Choke group 1-16, or 0 for none
+    - user_prompt: The original user prompt that led to this tool call (for telemetry)
+    """
+    return _device_cmd("set_drum_choke", {"track_index": track_index, "notes": notes, "group": group})
+
+
 # Main execution
 def main():
     """Run the MCP server"""
