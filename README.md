@@ -9,7 +9,7 @@ An extended version of [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Remote Script](https://img.shields.io/badge/Remote%20Script-1.15.0-blue)
 ![Live](https://img.shields.io/badge/Ableton%20Live-11%20%7C%2012-black)
-![Tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-253%20passing-brightgreen)
 
 [Quickstart](#quickstart) · [What's new](#what-this-edition-adds) · [Tools](#tool-reference) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/cedrati/ableton-mcp/issues)
 
@@ -33,6 +33,7 @@ It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https
 | **Routing** | Set track inputs, outputs and monitoring: layer one MIDI part on several instruments, resample the main output, route to a return. |
 | **Listening & mastering analysis** | Record the main output in real time and get a report: loudness per ITU-R BS.1770 / EBU R128 (integrated, short-term, momentary, loudness range), true peak, PLR, tonal balance against a reference curve, resonances, stereo width per band, low-end mono, each track's meter level, a spectrogram image — and ranked findings with fixes for a delivery target (streaming, club, classical, broadcast, podcast). |
 | **Drums** | Program a Drum Rack from 19 electronic patterns (techno, house, garage, breaks, d'n'b...) or your own step grids: pads found by name, Euclidean and polyrhythmic layers, ratchets, ghost notes, per-note probability, fills, swing, Live's Groove Pool. |
+| **Long-form evolution & arrangement** | Curves over 16–64 bars (filter builds, reverb swells, slow LFOs, phrase steps) on extended clips; whole Arrangements built from Session clips by section (DJ-friendly techno, compact 64 bars, minimal, house) with locators — the clip envelopes play as track automation. |
 | **Music theory** | ~50 scales and modes with their character and typical styles; 24 style sheets (baroque to techno); key, mode and chord analysis of a clip with roman numerals; 17 clip transformations (mode change, diatonic transposition, harmonization, arpeggios, voicings, swing...); voice-led chord progressions; Live 12's song scale. |
 | **Clips** | Notes in Arrangement clips, partial note removal, loop brace and markers, warp (modes, markers, conform a loop to the tempo), clip automation envelopes. |
 | **Files** | Import Standard MIDI Files into clips; analyse any WAV/AIFF. |
@@ -40,7 +41,7 @@ It is developed on the `feat/mixer-scenes` branch of [cedrati/ableton-mcp](https
 | **Devices & browser** | Plugins (VST, VST3, AU), User Library and Packs are browsable and loadable like built-in devices. |
 | **Reliability** | Playhead moves, locator creation and device loading reply only once Live has applied them; version handshake between server and Remote Script; capability checks so a newer server never sends a command an older script would misread. |
 
-Everything is covered by automated tests (245) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
+Everything is covered by automated tests (253) and checked end to end in Ableton Live 12. See the [Changelog](CHANGELOG.md) for the details of each release.
 
 ---
 
@@ -125,6 +126,7 @@ Ask the assistant to run `get_remote_script_info`. It should report `script_vers
 - *"Re-harmonise this melody in Dorian, add a third above, swing it at 58 %."*
 - *"Import this MIDI file and transpose it to F#."*
 - *"Program 8 bars of rolling techno on the 909 kit, with a 5-in-16 percussion layer and a clap roll every 4 bars."*
+- *"Open the acid bass filter over 16 bars, then lay out a 64-bar techno arrangement with a DJ intro and outro."*
 
 **Mix and master**
 - *"Listen to the whole track and tell me if it's ready for streaming."*
@@ -198,6 +200,15 @@ The mix report checks: integrated / short-term / momentary loudness and loudness
 | `write_drum_pattern` | Program a clip from a style and/or grids per role: `x` hit, `X` accent, `o` ghost, `2`-`4` ratchet, `?`/`*` probability; Euclidean layers, swing, fills, variation, humanize. |
 | `get_groove_pool` · `set_clip_groove` · `set_groove_params` | Live's Groove Pool: list grooves, apply one to a clip, adjust amounts and the global Groove amount. |
 
+### Evolution and arrangement
+
+| Tool | Description |
+|---|---|
+| `write_clip_evolution` | Extend a MIDI loop to N bars and write long curves per lane (device parameter or volume/pan/send): linear, exp build-up, log, S-curve, swell, slow sine/triangle, steps, random walk. |
+| `build_arrangement` | Lay out the Arrangement from Session clips by section (template or custom), roles from track names, per-section clip variants, tiling, locators, `dry_run`. Envelopes of the placed clips become track automation. |
+| `arrangement_overview` | Map of which track plays in each block of bars. |
+| `arrangement_templates` | Templates (`techno_dj`, `techno_64`, `minimal`, `house`) and curve shapes. |
+
 ### Music theory and composition
 
 | Tool | Description |
@@ -212,7 +223,7 @@ The mix report checks: integrated / short-term / momentary loudness and loudness
 
 ### Good to know
 
-- **Live's API has limits.** A script cannot save the set, export audio, create group tracks, or write Arrangement (song-level) automation such as tempo changes. Live's own analysers (Spectrum, EQ Eight's display, Max for Live meters) don't expose their readings — which is why listening works by recording the main output.
+- **Live's API has limits.** A script cannot save the set, export audio, create group tracks, or write Arrangement automation directly (tempo changes included). Track automation still reaches the Arrangement through Session clip envelopes, which `build_arrangement` places for you. Live's own analysers (Spectrum, EQ Eight's display, Max for Live meters) don't expose their readings — which is why listening works by recording the main output.
 - **Listening takes real time:** analysing a 3-minute song means playing it for 3 minutes.
 - **Device loading, playhead moves and locators** reply only once Live has applied them. Loading the same device that is already on a track resets it in place (the reply says so).
 - **Destructive tools** (`delete_track`, `delete_scene`, `delete_clip`, `delete_arrangement_clip`) do what they say — save your set before big experiments.
@@ -245,7 +256,7 @@ MCP client (Claude…)  ⇄  MCP server (MCP_Server/, Python)  ⇄  TCP 127.0.0.
 ```bash
 git clone -b feat/mixer-scenes https://github.com/cedrati/ableton-mcp
 cd ableton-mcp
-uv run --with pytest pytest -q          # 245 tests, no Live needed
+uv run --with pytest pytest -q          # 253 tests, no Live needed
 uv run ableton-mcp-install-script       # install your working copy into Live
 ```
 
@@ -264,4 +275,4 @@ The original project includes optional telemetry (anonymous tool usage) and an o
 - **Original project:** [ableton-mcp](https://github.com/ahujasid/ableton-mcp) by [Siddharth Ahuja](https://x.com/sidahuj).
 - **Extended edition:** Olivier Cedrati ([@cedrati](https://github.com/cedrati)) — mixing and routing, listening and mastering analysis, music theory, clip editing, MIDI import and reliability work. Report issues about this edition on [cedrati/ableton-mcp](https://github.com/cedrati/ableton-mcp/issues).
 
-MIT License — see [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.
+MIT License — Copyright (c) 2025 Siddharth Ahuja, Copyright (c) 2026 Olivier Cedrati (extended edition); see [LICENSE](LICENSE). This is a third-party integration, not made or endorsed by Ableton.

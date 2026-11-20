@@ -4,6 +4,20 @@ Changes in the extended edition by Olivier Cedrati ([cedrati/ableton-mcp](https:
 
 The version numbers below are the **Remote Script** version (`SCRIPT_VERSION`), which the server checks through `get_remote_script_info`. After updating, reinstall the script with `ableton-mcp-install-script` and **restart Live** — re-selecting the control surface does not reload the code.
 
+## Server update — long-form evolution and arrangement (Remote Script unchanged, 1.15.0)
+
+### Added
+
+- **`write_clip_evolution`:** extends a MIDI loop to N bars (notes tiled, probability kept) and writes long automation curves on it: linear, exp (build-up), log, S-curve, swell, slow sine/triangle LFO, phrase steps, random walk, hold; per lane, on a device parameter or the mixer (volume, pan, sends), optionally over part of the clip.
+- **Arrangement automation through Session clips:** Live's API cannot write Arrangement automation, but a Session clip's envelopes become track automation when the clip is copied to the Arrangement — checked by ear in Live 12 (a volume envelope plays as a −60 → −22 dBFS ramp in the Arrangement).
+- **`build_arrangement`:** lays out the Arrangement from Session clips, section by section, from a template (`techno_dj` ≈ 208 bars with DJ intro/outro, `techno_64`, `minimal`, `house`) or custom sections; track roles from track names (kick, drums, hats, perc, rumble, bass, chords, pad, lead, vocal, fx), per-section clip variants (e.g. the automated build), clips tiled to fill each section, named locators, `dry_run` to preview.
+- **`arrangement_overview`:** a map of the Arrangement, one character per block of bars per track.
+- **`arrangement_templates`:** the templates (sections, bars, energy, roles, production tips) and curve shapes.
+
+### Verified in Live 12
+
+A 64-bar techno track (909 kit, acid bass, dub chords) built from 6 Session clips: bass filter opening over 16 bars (S-curve) and 16 bars (exp, with resonance), chords' reverb send and volume rising over the 8-bar build; 23 placements and 6 locators, overview matching the plan; listening showed the intended energy curve (intro −23 LUFS, build rising −20 → −15, peak −11).
+
 ## Remote Script 1.15.0
 
 ### Added
