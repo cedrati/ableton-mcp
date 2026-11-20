@@ -296,6 +296,10 @@ Once the config file has been set on Claude, and the remote script is running in
 - Clip automation envelopes for device and mixer parameters *(fork)*
 - Read and edit notes in Arrangement clips *(fork)*
 - Clip loop brace and start/end markers *(fork)*
+- Devices on return tracks and the main track; plugins (VST/AU) and User Library items *(fork)*
+- Track routing (inputs, outputs, monitoring) *(fork)*
+- Record into the Arrangement, and "listen": resample the main output and analyze levels, clipping, loudness over time, stereo and spectral balance *(fork)*
+- Import Standard MIDI Files into clips *(fork)*
 
 ### Tools added by this fork
 
