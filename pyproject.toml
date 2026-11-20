@@ -1,11 +1,12 @@
 [project]
 name = "ableton-mcp"
 version = "1.4.5"
-description = "Ableton Live integration through the Model Context Protocol"
+description = "Ableton Live integration through the Model Context Protocol — extended edition (mixing, listening and mastering analysis, music theory)"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
-    {name = "Siddharth Ahuja", email = "ahujasid@gmail.com"}
+    {name = "Siddharth Ahuja", email = "ahujasid@gmail.com"},
+    {name = "Olivier Cedrati"},
 ]
 license = {text = "MIT"}
 classifiers = [
@@ -36,5 +37,6 @@ exclude-package-data = { "MCP_Server" = ["config.py"] }
 "MCP_Server.bundled_ableton_remote_script" = ["AbletonMCP_init.py"]
 
 [project.urls]
-"Homepage" = "https://github.com/ahujasid/ableton-mcp"
-"Bug Tracker" = "https://github.com/ahujasid/ableton-mcp/issues"
+"Homepage" = "https://github.com/cedrati/ableton-mcp"
+"Bug Tracker" = "https://github.com/cedrati/ableton-mcp/issues"
+"Upstream" = "https://github.com/ahujasid/ableton-mcp"
